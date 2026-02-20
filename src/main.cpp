@@ -136,7 +136,7 @@ void renderPlayer(MusicPlayer& player, const AppConfig& cfg) {
             int idx = lyricIdx + offset;
             if (idx >= 0 && idx < (int)song.lyrics.size()) {
                 if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
-                mvprintw(10 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
+                mvprintw(7 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
                 if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
             }
         }
