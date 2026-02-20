@@ -2,6 +2,9 @@
 
 一个基于 C++ 开发的轻量级终端音乐播放器, 支持歌词解析与显示
 
+<img width="1892" height="1546" alt="image" src="https://github.com/user-attachments/assets/13b95c40-3a98-4cb2-8d54-5f37b6cb9f75" />
+
+
 本项目大部分内容由AI辅助生成
 
 ## 项目简介
@@ -80,3 +83,4 @@ make
 -   [ √ ] 设置界面
 -   [ √ ] 应用内添加播放目录
 -   [   ] 播放列表排序功能
+-   [   ] 歌曲封面显示
