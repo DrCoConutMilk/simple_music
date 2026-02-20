@@ -38,10 +38,14 @@ void initConfig(AppConfig& cfg) {
         saveConfig(cfg);
     }
     std::ifstream i("config.json");
-    json j = json::parse(i);
-    cfg.music_dir = j.value("music_directory", "./music");
-    std::string m = j.value("play_mode", "sequential");
-    cfg.mode = (m == "shuffle" ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
+    try {
+        json j = json::parse(i);
+        cfg.music_dir = j.value("music_directory", "./music");
+        std::string m = j.value("play_mode", "sequential");
+        cfg.mode = (m == "shuffle" ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
+    } catch (...) {
+        saveConfig(cfg);
+    }
 }
 
 // --- 列表逻辑 ---
@@ -56,13 +60,21 @@ void scanMusic(AppConfig& cfg) {
 }
 
 void applyPlayMode(AppConfig& cfg) {
-    std::string current_song = cfg.current_playlist.empty() ? "" : cfg.current_playlist[cfg.currentIndex];
+    std::string current_song = (cfg.current_playlist.empty() || cfg.currentIndex >= cfg.current_playlist.size()) 
+                                ? "" : cfg.current_playlist[cfg.currentIndex];
+    
     cfg.current_playlist = cfg.original_list;
+    if (cfg.current_playlist.empty()) {
+        cfg.currentIndex = 0;
+        return;
+    }
+
     if (cfg.mode == PlayMode::SHUFFLE) {
         std::random_device rd;
         std::mt19937 g(rd());
         std::shuffle(cfg.current_playlist.begin(), cfg.current_playlist.end(), g);
     }
+    
     auto it = std::find(cfg.current_playlist.begin(), cfg.current_playlist.end(), current_song);
     cfg.currentIndex = (it != cfg.current_playlist.end()) ? (int)std::distance(cfg.current_playlist.begin(), it) : 0;
 }
@@ -71,15 +83,19 @@ void applyPlayMode(AppConfig& cfg) {
 void drawScrollingMenu(const std::string& title, const std::vector<std::string>& options, int highlight) {
     erase();
     int total = (int)options.size();
-    int max_rows = LINES - 6;
-    int start_index = (highlight >= max_rows) ? highlight - max_rows + 1 : 0;
-
-    mvprintw(1, 2, "--- %s (%d/%d) ---", title.c_str(), highlight + 1, total);
-    for (int i = 0; i < max_rows && (start_index + i) < total; ++i) {
-        int idx = start_index + i;
-        if (idx == highlight) attron(A_REVERSE);
-        mvprintw(3 + i, 4, "%s %s", (idx == highlight ? ">" : " "), options[idx].substr(0, COLS-10).c_str());
-        if (idx == highlight) attroff(A_REVERSE);
+    if (total == 0) {
+        mvprintw(1, 2, "--- %s ---", title.c_str());
+        mvprintw(3, 4, "[列表为空]");
+    } else {
+        int max_rows = LINES - 6;
+        int start_index = (highlight >= max_rows) ? highlight - max_rows + 1 : 0;
+        mvprintw(1, 2, "--- %s (%d/%d) ---", title.c_str(), highlight + 1, total);
+        for (int i = 0; i < max_rows && (start_index + i) < total; ++i) {
+            int idx = start_index + i;
+            if (idx == highlight) attron(A_REVERSE);
+            mvprintw(3 + i, 4, "%s %s", (idx == highlight ? ">" : " "), options[idx].substr(0, COLS-10).c_str());
+            if (idx == highlight) attroff(A_REVERSE);
+        }
     }
     mvprintw(LINES - 2, 2, "ENTER: 选择 | ESC: 返回上级");
     refresh();
@@ -96,39 +112,44 @@ std::string inputField(const std::string& prompt) {
 
 void renderPlayer(MusicPlayer& player, const AppConfig& cfg) {
     erase();
-    auto& song = player.getCurrentSong();
-    double elapsed = player.getElapsedSeconds();
     std::string mode_name = (cfg.mode == PlayMode::SHUFFLE ? "乱序" : "顺序");
-
-    // 1. 顶部信息
     mvprintw(1, 2, "目录: %s", cfg.music_dir.c_str());
-    mvprintw(2, 2, "模式: %s | [%d/%d] %s - %s", mode_name.c_str(), 
-             cfg.currentIndex + 1, (int)cfg.current_playlist.size(),
-             song.title.c_str(), song.artist.c_str());
+    mvprintw(3, 2, "模式: %s", mode_name.c_str());
 
-    // 2. 歌词滚动
-    int lyricIdx = -1;
-    for (int i = 0; i < (int)song.lyrics.size(); ++i) {
-        if (elapsed >= song.lyrics[i].timestamp) lyricIdx = i;
-        else break;
-    }
-    for (int offset = -1; offset <= 1; ++offset) {
-        int idx = lyricIdx + offset;
-        if (idx >= 0 && idx < (int)song.lyrics.size()) {
-            if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
-            mvprintw(10 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
-            if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
+    if (cfg.current_playlist.empty()) {
+        mvprintw(LINES/2, (COLS-20)/2, "--- 暂无歌曲 ---");
+        mvprintw(LINES/2 + 1, (COLS-30)/2, "请按 [M] 进入设置修改目录");
+    } else {
+        auto& song = player.getCurrentSong();
+        double elapsed = player.getElapsedSeconds();
+
+        mvprintw(2, 2, "当前播放：[%d/%d] %s - %s", cfg.currentIndex + 1, (int)cfg.current_playlist.size(),
+                 song.title.c_str(), song.artist.c_str());
+
+        // 歌词滚动
+        int lyricIdx = -1;
+        for (int i = 0; i < (int)song.lyrics.size(); ++i) {
+            if (elapsed >= song.lyrics[i].timestamp) lyricIdx = i;
+            else break;
         }
+        for (int offset = -1; offset <= 1; ++offset) {
+            int idx = lyricIdx + offset;
+            if (idx >= 0 && idx < (int)song.lyrics.size()) {
+                if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
+                mvprintw(10 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
+                if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
+            }
+        }
+
+        // 进度条
+        int barWidth = COLS - 20;
+        int pos = (song.duration > 0) ? (int)(elapsed / song.duration * barWidth) : 0;
+        mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed/60, (int)elapsed%60);
+        for(int i=0; i<barWidth; ++i) addch(i < pos ? '=' : (i == pos ? '>' : ' '));
+        printw("] %02d:%02d", (int)song.duration/60, (int)song.duration%60);
     }
 
-    // 3. 进度条
-    int barWidth = COLS - 20;
-    int pos = (song.duration > 0) ? (int)(elapsed / song.duration * barWidth) : 0;
-    mvprintw(LINES - 4, 2, "操作: [M]菜单 | [空格]暂停 | [左右]切歌 | [Q]退出");
-    mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed/60, (int)elapsed%60);
-    for(int i=0; i<barWidth; ++i) addch(i < pos ? '=' : (i == pos ? '>' : ' '));
-    printw("] %02d:%02d", (int)song.duration/60, (int)song.duration%60);
-    
+    mvprintw(LINES - 4, 2, "[M]菜单 | [空格]暂停 | [左右]切歌 | [Q]退出");
     refresh();
 }
 
@@ -154,8 +175,8 @@ int main() {
             needLoad = false;
         }
 
-        // 自动下一首逻辑
-        if (!player.isPlaying() && !player.isPaused() && cfg.state == AppState::PLAYING) {
+        // 自动下一首逻辑 (增加空列表保护)
+        if (!cfg.current_playlist.empty() && !player.isPlaying() && !player.isPaused() && cfg.state == AppState::PLAYING) {
             cfg.currentIndex = (cfg.currentIndex + 1) % cfg.current_playlist.size();
             needLoad = true;
         }
@@ -163,8 +184,7 @@ int main() {
         int ch = getch();
         if (ch == 'q') quit = true;
 
-        // ESC 处理
-        if (ch == 27) {
+        if (ch == 27) { // ESC
             switch (cfg.state) {
                 case AppState::MAIN_MENU: cfg.state = AppState::PLAYING; break;
                 case AppState::SETTINGS_MENU: cfg.state = AppState::MAIN_MENU; highlight = 1; break;
@@ -178,9 +198,11 @@ int main() {
         switch (cfg.state) {
             case AppState::PLAYING:
                 if (ch == 'm') { cfg.state = AppState::MAIN_MENU; highlight = 0; }
-                if (ch == ' ') player.isPaused() ? player.resume() : player.pause();
-                if (ch == KEY_RIGHT) { cfg.currentIndex = (cfg.currentIndex + 1) % cfg.current_playlist.size(); needLoad = true; }
-                if (ch == KEY_LEFT) { cfg.currentIndex = (cfg.currentIndex - 1 + cfg.current_playlist.size()) % cfg.current_playlist.size(); needLoad = true; }
+                if (!cfg.current_playlist.empty()) {
+                    if (ch == ' ') player.isPaused() ? player.resume() : player.pause();
+                    if (ch == KEY_RIGHT) { cfg.currentIndex = (cfg.currentIndex + 1) % cfg.current_playlist.size(); needLoad = true; }
+                    if (ch == KEY_LEFT) { cfg.currentIndex = (cfg.currentIndex - 1 + (int)cfg.current_playlist.size()) % cfg.current_playlist.size(); needLoad = true; }
+                }
                 renderPlayer(player, cfg);
                 break;
 
@@ -218,12 +240,13 @@ int main() {
 
             case AppState::SET_DIR: {
                 std::string new_path = inputField("输入新目录路径: ");
-                if (!new_path.empty() && fs::exists(new_path)) {
+                if (!new_path.empty()) {
                     cfg.music_dir = new_path;
                     saveConfig(cfg);
                     scanMusic(cfg);
                     applyPlayMode(cfg);
-                    needLoad = true;
+                    needLoad = !cfg.current_playlist.empty();
+                    if (needLoad) cfg.currentIndex = 0;
                 }
                 cfg.state = AppState::SETTINGS_MENU; highlight = 1;
                 break;
@@ -233,12 +256,14 @@ int main() {
                 std::vector<std::string> names;
                 for(auto& p : cfg.current_playlist) names.push_back(fs::path(p).filename().string());
                 drawScrollingMenu("播放列表", names, highlight);
-                if (ch == KEY_UP) highlight = (highlight - 1 + (int)names.size()) % (int)names.size();
-                if (ch == KEY_DOWN) highlight = (highlight + 1) % (int)names.size();
-                if (ch == '\n' || ch == 13) {
-                    cfg.currentIndex = highlight;
-                    needLoad = true;
-                    cfg.state = AppState::PLAYING;
+                if (!names.empty()) {
+                    if (ch == KEY_UP) highlight = (highlight - 1 + (int)names.size()) % (int)names.size();
+                    if (ch == KEY_DOWN) highlight = (highlight + 1) % (int)names.size();
+                    if (ch == '\n' || ch == 13) {
+                        cfg.currentIndex = highlight;
+                        needLoad = true;
+                        cfg.state = AppState::PLAYING;
+                    }
                 }
                 break;
             }
