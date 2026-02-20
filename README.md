@@ -14,13 +14,15 @@
 
 ``` text
 simple_music/
-├── main.cpp            # 核心逻辑：音频控制、歌词解析与 Ncurses 渲染
-├── CMakeLists.txt      # 跨平台构建脚本
-├── config.json         # 运行时配置：指定歌曲目录与模式
-├── LICENSE             # 项目授权协议
-├── README.md           # 本文档
-└── build/              # 编译产物目录
-    └── simple_music    # 编译生成的二进制执行文件
+├── build 
+├── CMakeLists.txt
+├── include
+│   └── MusicPlayer.hpp
+├── LICENSE
+├── README.md
+└── src
+    ├── main.cpp
+    └── MusicPlayer.cpp
 ```
 
 ------------------------------------------------------------------------
@@ -64,8 +66,8 @@ make
 
 ``` json
 {
-    "music_directory": "/home/user/Music",
-    "play_mode": "sequential"
+    "music_directory": "/home/user/音乐",
+    "play_mode": "shuffle"
 }
 ```
 
@@ -75,6 +77,6 @@ make
 
 ### 计划中
 
--   [ ] 设置界面
--   [ ] 应用内添加播放目录
--   [ ] 播放列表排序功能
+-   [ √ ] 设置界面
+-   [ √ ] 应用内添加播放目录
+-   [   ] 播放列表排序功能
