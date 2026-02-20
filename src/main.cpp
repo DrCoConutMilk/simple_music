@@ -6,6 +6,7 @@
 #include <random>
 #include <thread>
 #include <vector>
+#include <cstdlib> // 必须引入，用于 getenv
 #include <nlohmann/json.hpp>
 #include "MusicPlayer.hpp"
 
@@ -24,20 +25,48 @@ struct AppConfig {
     AppState state = AppState::PLAYING;
 };
 
+// --- 获取跨平台的配置文件路径 ---
+fs::path getConfigFilePath() {
+    const char* home_env = std::getenv("HOME");
+    fs::path config_path;
+
+    if (home_env) {
+        // 遵循 XDG 标准：~/.config/软件名/config.json
+        config_path = fs::path(home_env) / ".config" / "simple_music_player";
+    } else {
+        // 回退方案：当前目录
+        config_path = fs::current_path();
+    }
+
+    // 确保配置文件夹存在
+    if (!fs::exists(config_path)) {
+        fs::create_directories(config_path);
+    }
+
+    return config_path / "config.json";
+}
+
 // --- 配置持久化 ---
 void saveConfig(const AppConfig& cfg) {
     json j;
     j["music_directory"] = cfg.music_dir;
     j["play_mode"] = (cfg.mode == PlayMode::SHUFFLE ? "shuffle" : "sequential");
-    std::ofstream o("config.json");
-    o << j.dump(4);
+    
+    std::ofstream o(getConfigFilePath());
+    if (o.is_open()) {
+        o << j.dump(4);
+    }
 }
 
 void initConfig(AppConfig& cfg) {
-    if (!fs::exists("config.json")) {
+    fs::path p = getConfigFilePath();
+    
+    if (!fs::exists(p)) {
         saveConfig(cfg);
+        return;
     }
-    std::ifstream i("config.json");
+
+    std::ifstream i(p);
     try {
         json j = json::parse(i);
         cfg.music_dir = j.value("music_directory", "./music");
@@ -51,16 +80,29 @@ void initConfig(AppConfig& cfg) {
 // --- 列表逻辑 ---
 void scanMusic(AppConfig& cfg) {
     cfg.original_list.clear();
-    if (!fs::exists(cfg.music_dir)) fs::create_directories(cfg.music_dir);
-    for (const auto& entry : fs::directory_iterator(cfg.music_dir)) {
-        std::string ext = entry.path().extension();
-        if (ext == ".mp3" || ext == ".flac") cfg.original_list.push_back(entry.path().string());
+    // 允许使用相对路径或绝对路径
+    fs::path m_path = cfg.music_dir;
+    if (!fs::exists(m_path)) {
+        try {
+            fs::create_directories(m_path);
+        } catch (...) {
+            return; // 无法创建目录则返回
+        }
+    }
+
+    for (const auto& entry : fs::directory_iterator(m_path)) {
+        if (!entry.is_regular_file()) continue;
+        std::string ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower); // 统一转小写进行匹配
+        if (ext == ".mp3" || ext == ".flac") {
+            cfg.original_list.push_back(entry.path().string());
+        }
     }
     std::sort(cfg.original_list.begin(), cfg.original_list.end());
 }
 
 void applyPlayMode(AppConfig& cfg) {
-    std::string current_song = (cfg.current_playlist.empty() || cfg.currentIndex >= cfg.current_playlist.size()) 
+    std::string current_song = (cfg.current_playlist.empty() || cfg.currentIndex >= (int)cfg.current_playlist.size()) 
                                 ? "" : cfg.current_playlist[cfg.currentIndex];
     
     cfg.current_playlist = cfg.original_list;
@@ -93,7 +135,7 @@ void drawScrollingMenu(const std::string& title, const std::vector<std::string>&
         for (int i = 0; i < max_rows && (start_index + i) < total; ++i) {
             int idx = start_index + i;
             if (idx == highlight) attron(A_REVERSE);
-            mvprintw(3 + i, 4, "%s %s", (idx == highlight ? ">" : " "), options[idx].substr(0, COLS-10).c_str());
+            mvprintw(3 + i, 4, "%s %s", (idx == highlight ? ">" : " "), options[idx].substr(0, std::max(0, COLS-10)).c_str());
             if (idx == highlight) attroff(A_REVERSE);
         }
     }
@@ -142,7 +184,7 @@ void renderPlayer(MusicPlayer& player, const AppConfig& cfg) {
         }
 
         // 进度条
-        int barWidth = COLS - 20;
+        int barWidth = std::max(10, COLS - 20);
         int pos = (song.duration > 0) ? (int)(elapsed / song.duration * barWidth) : 0;
         mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed/60, (int)elapsed%60);
         for(int i=0; i<barWidth; ++i) addch(i < pos ? '=' : (i == pos ? '>' : ' '));
@@ -159,7 +201,7 @@ int main() {
     start_color(); init_pair(1, COLOR_CYAN, COLOR_BLACK);
 
     AppConfig cfg;
-    initConfig(cfg);
+    initConfig(cfg); // 现在会加载 ~/.config/CoCoPlayer/config.json
     scanMusic(cfg);
     applyPlayMode(cfg);
 
@@ -175,7 +217,6 @@ int main() {
             needLoad = false;
         }
 
-        // 自动下一首逻辑 (增加空列表保护)
         if (!cfg.current_playlist.empty() && !player.isPlaying() && !player.isPaused() && cfg.state == AppState::PLAYING) {
             cfg.currentIndex = (cfg.currentIndex + 1) % cfg.current_playlist.size();
             needLoad = true;
