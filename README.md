@@ -48,18 +48,6 @@ CMake
 bash ./build.sh
 ```
 
-### 配置运行参数
-
-编辑 `build/config.json`：
-
-``` json
-{
-    "music_directory": "/home/user/音乐",
-    "play_mode": "shuffle"
-}
-```
-
-
 ## 任务清单
 
 
