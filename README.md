@@ -2,9 +2,7 @@
 
 一个基于 C++ 开发的轻量级终端音乐播放器, 支持歌词解析与显示
 
-<img width="400" height="386" alt="image" src="https://github.com/user-attachments/assets/0f839001-83f7-4501-828b-5c672f736a8c" />
-
-
+<img width="396" height="302" alt="image" src="https://github.com/user-attachments/assets/1ba8b28a-e22f-4a56-baa3-e2d8924115d9" />
 
 本项目大部分内容由AI辅助生成
 
@@ -46,22 +44,8 @@ CMake
 
 ## 构建流程
 
-### 创建并进入构建目录
-
 ``` bash
-mkdir build && cd build
-```
-
-### 配置 CMake
-
-``` bash
-cmake ..
-```
-
-### 编译
-
-``` bash
-make
+bash ./build.sh
 ```
 
 ### 配置运行参数
@@ -85,3 +69,4 @@ make
 -   [ √ ] 应用内添加播放目录
 -   [   ] 播放列表排序功能
 -   [   ] 歌曲封面显示
+-   [   ] 分离界面渲染和音乐播放线程
