@@ -2,7 +2,8 @@
 
 一个基于 C++ 开发的轻量级终端音乐播放器, 支持歌词解析与显示
 
-<img width="396" height="302" alt="image" src="https://github.com/user-attachments/assets/1ba8b28a-e22f-4a56-baa3-e2d8924115d9" />
+<img width="400" height="350" alt="image" src="https://github.com/user-attachments/assets/71d2e8d5-8448-466b-8e2b-3475ed26dfee" />
+
 
 本项目大部分内容由AI辅助生成
 
@@ -58,6 +59,8 @@ bash ./build.sh
 
 -   [ √ ] 设置界面
 -   [ √ ] 应用内添加播放目录
+-   [ √ ] 分离界面渲染和音乐播放线程
+-   [ x ] 歌曲封面显示 //部分终端不支持，已放弃
 -   [   ] 播放列表排序功能
--   [   ] 歌曲封面显示
--   [   ] 分离界面渲染和音乐播放线程
+-   [   ] 自定义歌单
+
