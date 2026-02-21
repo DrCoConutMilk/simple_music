@@ -36,6 +36,8 @@ public:
     std::string music_dir = "./music";
     std::vector<std::string> current_playlist;
     int currentIndex = 0;
+
+    bool isInitialState = true; // 标志位：是否为刚启动状态
     
     MusicPlayer& getPlayer() { return player; }
     std::mutex& getMutex() { return dataMutex; }

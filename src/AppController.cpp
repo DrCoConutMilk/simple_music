@@ -28,22 +28,33 @@ void AppController::playbackLoop() {
         std::string path_to_load = "";
         
         {
-            // 锁的范围仅限于读取状态，不要包含加载过程
             std::lock_guard<std::mutex> lock(dataMutex);
             
-            // 自动切歌判断
-            if (!current_playlist.empty() && !player.isPlaying() && !player.isPaused()) {
-                currentIndex = (currentIndex + 1) % current_playlist.size();
-                needLoad = true;
-            }
+            if (!current_playlist.empty()) {
+                // 自动切歌判断逻辑
+                // 如果当前没在播，且没暂停
+                if (!player.isPlaying() && !player.isPaused()) {
+                    
+                    if (isInitialState) {
+                        // 启动后的第一次：直接加载当前索引(0)，不自增
+                        needLoad = true;
+                        isInitialState = false; 
+                    } else {
+                        // 之后的情况：说明上一首歌真的播完了，切下一首
+                        currentIndex = (currentIndex + 1) % current_playlist.size();
+                        needLoad = true;
+                    }
+                }
 
-            if (needLoad && !current_playlist.empty()) {
-                path_to_load = current_playlist[currentIndex];
-                needLoad = false;
+                if (needLoad) {
+                    path_to_load = current_playlist[currentIndex];
+                    needLoad = false;
+                    // 如果是手动触发的加载，也要关闭初始状态标记
+                    isInitialState = false; 
+                }
             }
         }
 
-        // 在锁之外执行耗时的加载和播放操作
         if (!path_to_load.empty()) {
             player.load(path_to_load);
             player.play();
