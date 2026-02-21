@@ -9,7 +9,6 @@
 namespace fs = std::filesystem;
 
 // --- UI辅助函数 ---
-// 修改：移除 drawScrollingMenu 内部的 erase()，交由主循环统一管理
 void drawScrollingMenu(const std::string& title, const std::vector<std::string>& options, int highlight) {
     int total = (int)options.size();
     mvprintw(1, 2, "--- %s ---", title.c_str());
@@ -25,13 +24,16 @@ void drawScrollingMenu(const std::string& title, const std::vector<std::string>&
             if (idx == highlight) attroff(A_REVERSE);
         }
     }
-    mvprintw(LINES - 2, 2, "[ENTER]选择 | [ESC]返回上级");
+    mvprintw(LINES - 4, 2, "[ENTER]选择 | [ESC]返回上级");
 }
 
 std::string inputField(const std::string& prompt) {
+    // 临时进入阻塞模式进行输入
     echo(); curs_set(1); nodelay(stdscr, FALSE);
     char buf[256];
+    erase(); // 清屏，避免菜单干扰输入框显示
     mvprintw(LINES / 2, 4, "%s", prompt.c_str());
+    refresh();
     getstr(buf);
     noecho(); curs_set(0); nodelay(stdscr, TRUE);
     return std::string(buf);
@@ -53,7 +55,6 @@ void renderPlayer(AppController& ctrl) {
                  ctrl.currentIndex + 1, (int)ctrl.current_playlist.size(), 
                  song.title.c_str(), song.artist.c_str());
 
-        // 歌词显示
         int lyricIdx = -1;
         for (int i = 0; i < (int)song.lyrics.size(); ++i) {
             if (elapsed >= song.lyrics[i].timestamp) lyricIdx = i; else break;
@@ -62,12 +63,11 @@ void renderPlayer(AppController& ctrl) {
             int idx = lyricIdx + offset;
             if (idx >= 0 && idx < (int)song.lyrics.size()) {
                 if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
-                mvprintw(7 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
+                mvprintw(8 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
                 if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
             }
         }
 
-        // 进度条
         int barWidth = std::max(10, COLS - 20);
         int pos = (song.duration > 0) ? (int)(elapsed / song.duration * barWidth) : 0;
         mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed / 60, (int)elapsed % 60);
@@ -117,7 +117,11 @@ int main() {
                     if (ch == '\n' || ch == 13) {
                         if (highlight == 0) ctrl.state = AppState::PLAYING;
                         else if (highlight == 1) { ctrl.state = AppState::SETTINGS_MENU; highlight = 0; }
-                        else if (highlight == 2) { ctrl.state = AppState::PLAYLIST; highlight = ctrl.currentIndex; }
+                        else if (highlight == 2) { 
+                            std::lock_guard<std::mutex> lock(ctrl.getMutex());
+                            ctrl.state = AppState::PLAYLIST; 
+                            highlight = ctrl.currentIndex; 
+                        }
                     }
                     break;
 
@@ -125,8 +129,17 @@ int main() {
                     if (ch == KEY_UP) highlight = (highlight - 1 + 2) % 2;
                     if (ch == KEY_DOWN) highlight = (highlight + 1) % 2;
                     if (ch == '\n' || ch == 13) {
-                        if (highlight == 0) { ctrl.state = AppState::SET_MODE; highlight = (ctrl.mode == PlayMode::SEQUENTIAL ? 0 : 1); }
-                        else if (highlight == 1) ctrl.state = AppState::SET_DIR;
+                        if (highlight == 0) { 
+                            ctrl.state = AppState::SET_MODE; 
+                            highlight = (ctrl.mode == PlayMode::SEQUENTIAL ? 0 : 1); 
+                        }
+                        else if (highlight == 1) {
+                            // 关键改进：在这里直接调用，不等待下一轮循环
+                            std::string new_path = inputField("输入新目录路径: ");
+                            if (!new_path.empty()) ctrl.updateConfigDir(new_path);
+                            // 输入完成后自动回到设置菜单
+                            highlight = 1; 
+                        }
                     }
                     break;
 
@@ -137,13 +150,6 @@ int main() {
                         ctrl.state = AppState::SETTINGS_MENU; highlight = 0;
                     }
                     break;
-
-                case AppState::SET_DIR: {
-                    std::string new_path = inputField("输入新目录路径: ");
-                    if (!new_path.empty()) ctrl.updateConfigDir(new_path);
-                    ctrl.state = AppState::SETTINGS_MENU; highlight = 1;
-                    break;
-                }
 
                 case AppState::PLAYLIST: {
                     std::lock_guard<std::mutex> lock(ctrl.getMutex());
@@ -163,28 +169,22 @@ int main() {
         }
 
         // --- 2. 渲染逻辑 (Render) ---
-        // 无论有没有按键按下，每一帧都重新渲染，保证进度条平滑
         erase();
         {
-            // 在读取 ctrl 内的状态数据时进行加锁保护
             std::lock_guard<std::mutex> lock(ctrl.getMutex());
             switch (ctrl.state) {
                 case AppState::PLAYING:
                     renderPlayer(ctrl);
                     break;
-
                 case AppState::MAIN_MENU:
                     drawScrollingMenu("主菜单", {"返回播放", "设置", "播放列表"}, highlight);
                     break;
-
                 case AppState::SETTINGS_MENU:
                     drawScrollingMenu("设置", {"播放模式", "修改播放目录"}, highlight);
                     break;
-
                 case AppState::SET_MODE:
                     drawScrollingMenu("播放模式", {"顺序播放", "乱序播放"}, highlight);
                     break;
-
                 case AppState::PLAYLIST: {
                     std::vector<std::string> names;
                     for (auto& p : ctrl.current_playlist) names.push_back(fs::path(p).filename().string());
@@ -195,8 +195,6 @@ int main() {
             }
         }
         refresh();
-
-        // 控制刷新率为 ~33 FPS
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
 
