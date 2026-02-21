@@ -18,13 +18,16 @@
 
 ``` text
 simple_music/
-├── build 
+├── build.sh
 ├── CMakeLists.txt
 ├── include
+│   ├── AppController.hpp
 │   └── MusicPlayer.hpp
 ├── LICENSE
+├── music
 ├── README.md
 └── src
+    ├── AppController.cpp
     ├── main.cpp
     └── MusicPlayer.cpp
 ```
