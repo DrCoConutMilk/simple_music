@@ -53,7 +53,7 @@ target_link_libraries(smp
 install(TARGETS smp DESTINATION bin)
 
 set(CPACK_PACKAGE_NAME "simple-music-player")
-set(CPACK_PACKAGE_VERSION "0.1.2")
+set(CPACK_PACKAGE_VERSION "0.1.3")
 set(CPACK_PACKAGE_CONTACT "drcoconutmilk@gmail.com")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "DrCoConutMilk")
 set(CPACK_GENERATOR "DEB")

@@ -1,4 +1,5 @@
 build/
+bugs/
 
 # Prerequisites
 *.d
