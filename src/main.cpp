@@ -112,7 +112,9 @@ int main()
     nodelay(stdscr, TRUE);
     curs_set(0);
     start_color();
-    init_pair(1, COLOR_CYAN, COLOR_BLACK);
+    use_default_colors();
+    // 将背景设置为 -1，即使用终端默认背景
+    init_pair(1, COLOR_CYAN, -1);
 
     AppController ctrl;
     int highlight = 0;
