@@ -15,9 +15,9 @@ void drawScrollingMenu(const std::string& title, const std::vector<std::string>&
     if (total == 0) {
         mvprintw(3, 4, "[列表为空]");
     } else {
-        int max_rows = LINES - 6;
+        int max_rows = LINES - 8;
         int start_index = (highlight >= max_rows) ? highlight - max_rows + 1 : 0;
-        for (int i = 0; i < max_rows && (start_index + i) < total; ++i) {
+        for (int i = 0; i < (max_rows) && (start_index + i) < total; ++i) {
             int idx = start_index + i;
             if (idx == highlight) attron(A_REVERSE);
             mvprintw(3 + i, 4, "%s %s", (idx == highlight ? ">" : " "), options[idx].substr(0, std::max(0, COLS - 10)).c_str());
