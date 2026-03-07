@@ -23,13 +23,15 @@ bool MusicPlayer::load(const std::string& path) {
     music = Mix_LoadMUS(path.c_str());
     if (!music) return false;
 
+    currentFilePath = path;
+    
     // 1. 解析元数据
     TagLib::FileRef f(path.c_str());
     if (!f.isNull() && f.tag()) {
         currentSong.title = f.tag()->title().to8Bit(true);
         currentSong.artist = f.tag()->artist().to8Bit(true);
         if (f.audioProperties()) {
-            currentSong.duration = f.audioProperties()->length();
+            currentSong.duration = f.audioProperties()->lengthInSeconds();
         }
     }
     

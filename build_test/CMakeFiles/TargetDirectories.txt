@@ -1,0 +1,9 @@
+/home/coconut/文档/simple_music/build_test/CMakeFiles/smp.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/package.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/package_source.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/edit_cache.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/rebuild_cache.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/list_install_components.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/install.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/install/local.dir
+/home/coconut/文档/simple_music/build_test/CMakeFiles/install/strip.dir

@@ -36,6 +36,7 @@ public:
     bool isPlaying() const;
     double getElapsedSeconds() const;
     const SongInfo& getCurrentSong() const { return currentSong; }
+    std::string getCurrentFilePath() const { return currentFilePath; }
 
 private:
     void parseLyrics(const std::string& path);
@@ -44,6 +45,7 @@ private:
 
     Mix_Music* music = nullptr;
     SongInfo currentSong;
+    std::string currentFilePath;
     
     // 进度计算相关变量
     Uint32 startTicks = 0;
