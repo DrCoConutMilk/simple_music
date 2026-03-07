@@ -21,6 +21,8 @@ PageMenu add_to_playlist_page;
 PageMenu sort_menu_page;
 AppState previous_state = AppState::PLAYING;
 int current_selected_playlist_index = -1;  // 当前选中的歌单索引
+int current_operating_song_index = -1;     // 当前操作的歌曲索引
+std::string song_to_add_path = "";         // 要添加的歌曲路径（如果为空，则添加当前播放的歌曲）
 
 // --- 辅助函数 ---
 void enterHelp() {
@@ -87,7 +89,9 @@ void renderPlaying() {
 void renderMainMenu() {
     std::vector<std::string> options = {
         "返回播放",
+        "播放列表",
         "歌单管理器",
+        "添加到歌单",
         "设置"
     };
     drawPageMenu("主菜单", options, main_menu_page, false);
@@ -161,6 +165,35 @@ void renderPlaylistView() {
     char title[128];
     snprintf(title, sizeof(title), "歌单: %s - 歌曲列表", playlist->name.c_str());
     drawPageMenu(title, options, playlist_view_page, false);
+}
+
+void renderSongOperationMenu() {
+    if (current_selected_playlist_index < 0 || 
+        current_selected_playlist_index >= (int)ctrl.playlists.size() ||
+        current_operating_song_index < 0) {
+        return;
+    }
+    
+    auto& playlist = ctrl.playlists[current_selected_playlist_index];
+    if (current_operating_song_index >= (int)playlist->size()) {
+        return;
+    }
+    
+    const auto& song = playlist->getSongs()[current_operating_song_index];
+    char song_info[256];
+    snprintf(song_info, sizeof(song_info), "%s - %s", 
+             song.title.c_str(), song.artist.c_str());
+    
+    std::vector<std::string> options = {
+        "播放此歌曲",
+        "从歌单删除",
+        "添加到指定歌单",
+        "返回歌曲列表"
+    };
+    
+    char title[256];
+    snprintf(title, sizeof(title), "歌曲操作: %s", song_info);
+    drawPageMenu(title, options, main_menu_page, false); // 使用main_menu_page作为临时页面
 }
 
 void renderPlaylistEdit() {
@@ -248,11 +281,36 @@ void handleMainMenuInput(int ch) {
                 ctrl.state = AppState::PLAYING;
                 break;
             case 1:
+                // 播放列表：浏览当前播放的歌单
+                if (ctrl.currentPlaylistIndex >= 0 && ctrl.currentPlaylistIndex < (int)ctrl.playlists.size()) {
+                    current_selected_playlist_index = ctrl.currentPlaylistIndex;
+                    ctrl.state = AppState::PLAYLIST_VIEW;
+                    auto& playlist = ctrl.playlists[current_selected_playlist_index];
+                    playlist_view_page.update(playlist->size());
+                    playlist_view_page.current_page = 0;
+                    playlist_view_page.selected_index = ctrl.currentSongIndex; // 选中当前播放的歌曲
+                }
+                break;
+            case 2:
                 ctrl.state = AppState::PLAYLIST_MANAGER;
                 playlist_manager_page.selected_index = 0;
                 playlist_manager_page.update(ctrl.playlists.size());
                 break;
-            case 2:
+            case 3:
+                // 添加到歌单
+                if (ctrl.currentPlaylistIndex >= 0 && ctrl.currentPlaylistIndex < (int)ctrl.playlists.size()) {
+                    auto& current_playlist = ctrl.playlists[ctrl.currentPlaylistIndex];
+                    if (ctrl.currentSongIndex >= 0 && ctrl.currentSongIndex < (int)current_playlist->size()) {
+                        // 清空歌曲路径，表示添加当前播放的歌曲
+                        song_to_add_path = "";
+                        // 进入添加到歌单界面
+                        ctrl.state = AppState::ADD_TO_PLAYLIST;
+                        add_to_playlist_page.selected_index = 0;
+                        add_to_playlist_page.update(ctrl.playlists.size());
+                    }
+                }
+                break;
+            case 4:
                 ctrl.state = AppState::SETTINGS_MENU;
                 main_menu_page.selected_index = 0;
                 break;
@@ -299,6 +357,8 @@ void handlePlaylistManagerInput(int ch) {
             // 选择歌单 - 进入歌单功能菜单
             ctrl.state = AppState::PLAYLIST_MENU;
             current_selected_playlist_index = selected;
+            // 注意：这里不更新 ctrl.currentPlaylistIndex
+            // currentPlaylistIndex 只在用户选择"播放此歌单"时才更新
             // 重置页面菜单状态，从第一个选项开始
             playlist_menu_page.current_page = 0;
             playlist_menu_page.selected_index = 0;
@@ -416,16 +476,87 @@ void handlePlaylistViewInput(int ch) {
         int selected = playlist_view_page.selected_index;
         
         if (selected < song_count) {
-            // 选择歌曲 - 播放该歌曲
-            ctrl.currentPlaylistIndex = current_selected_playlist_index;
-            ctrl.currentSongIndex = selected;
-            ctrl.state = AppState::PLAYING;
+            // 记录选中的歌曲索引，然后打开歌曲操作菜单
+            current_operating_song_index = selected;
+            ctrl.state = AppState::SONG_OPERATION_MENU;
         }
     } else if (ch == 'h' || ch == 'H') {
         enterHelp();
     } else if (ch == 'q' || ch == 'Q') {
         // 返回歌单功能菜单
         ctrl.state = AppState::PLAYLIST_MENU;
+    }
+}
+
+void handleSongOperationMenuInput(int ch) {
+    if (ch == KEY_UP) {
+        main_menu_page.moveUp();
+    } else if (ch == KEY_DOWN) {
+        main_menu_page.moveDown();
+    } else if (ch == KEY_PPAGE) {
+        main_menu_page.prevPage();
+    } else if (ch == KEY_NPAGE) {
+        main_menu_page.nextPage();
+    } else if (ch == '\n' || ch == 13) {
+        switch (main_menu_page.selected_index) {
+            case 0:
+                // 播放此歌曲
+                if (current_selected_playlist_index >= 0 && 
+                    current_selected_playlist_index < (int)ctrl.playlists.size() &&
+                    current_operating_song_index >= 0) {
+                    auto& playlist = ctrl.playlists[current_selected_playlist_index];
+                    if (current_operating_song_index < (int)playlist->size()) {
+                        ctrl.currentPlaylistIndex = current_selected_playlist_index;
+                        ctrl.currentSongIndex = current_operating_song_index;
+                        ctrl.requestLoad();
+                        ctrl.state = AppState::PLAYING;
+                    }
+                }
+                break;
+            case 1:
+                // 从歌单删除
+                if (current_selected_playlist_index >= 0 && 
+                    current_selected_playlist_index < (int)ctrl.playlists.size() &&
+                    current_operating_song_index >= 0) {
+                    ctrl.removeSongFromPlaylist(current_selected_playlist_index, current_operating_song_index);
+                    // 返回歌曲列表
+                    ctrl.state = AppState::PLAYLIST_VIEW;
+                    // 更新歌曲列表显示
+                    auto& playlist = ctrl.playlists[current_selected_playlist_index];
+                    playlist_view_page.update(playlist->size());
+                    // 重置选中索引
+                    if (playlist_view_page.selected_index >= (int)playlist->size()) {
+                        playlist_view_page.selected_index = std::max(0, (int)playlist->size() - 1);
+                    }
+                }
+                break;
+            case 2:
+                // 添加到指定歌单
+                if (current_selected_playlist_index >= 0 && 
+                    current_selected_playlist_index < (int)ctrl.playlists.size() &&
+                    current_operating_song_index >= 0) {
+                    auto& playlist = ctrl.playlists[current_selected_playlist_index];
+                    if (current_operating_song_index < (int)playlist->size()) {
+                        // 获取要添加的歌曲路径
+                        const auto& song = playlist->getSongs()[current_operating_song_index];
+                        song_to_add_path = song.path;
+                        // 进入添加到歌单界面
+                        ctrl.state = AppState::ADD_TO_PLAYLIST;
+                        add_to_playlist_page.selected_index = 0;
+                        add_to_playlist_page.update(ctrl.playlists.size());
+                    }
+                }
+                break;
+            case 3:
+                // 返回歌曲列表
+                ctrl.state = AppState::PLAYLIST_VIEW;
+                break;
+        }
+    } else if (ch == 'h' || ch == 'H') {
+        enterHelp();
+    } else if (ch == 'q' || ch == 'Q') {
+        // 返回歌曲列表
+        ctrl.state = AppState::PLAYLIST_VIEW;
     }
 }
 
@@ -506,9 +637,22 @@ void handleAddToPlaylistInput(int ch) {
         int playlist_count = ctrl.playlists.size();
         
         if (selected < playlist_count) {
-            // 选择歌单 - 添加当前歌曲
-            ctrl.addCurrentSongToPlaylist(selected);
-            ctrl.state = AppState::PLAYING;
+            // 选择歌单 - 添加歌曲
+            if (!song_to_add_path.empty()) {
+                // 添加指定的歌曲
+                ctrl.addSongToPlaylist(selected, song_to_add_path);
+            } else {
+                // 添加当前播放的歌曲
+                ctrl.addCurrentSongToPlaylist(selected);
+            }
+            // 清空歌曲路径
+            song_to_add_path = "";
+            // 返回来源界面
+            if (ctrl.state == AppState::SONG_OPERATION_MENU) {
+                ctrl.state = AppState::PLAYLIST_VIEW;
+            } else {
+                ctrl.state = AppState::PLAYING;
+            }
         } else if (selected == playlist_count + 1) {
             // "返回播放"选项（跳过分隔线）
             ctrl.state = AppState::PLAYING;
@@ -662,6 +806,9 @@ int main() {
                 case AppState::PLAYLIST_SORT:
                     handleSortMenuInput(ch);
                     break;
+                case AppState::SONG_OPERATION_MENU:
+                    handleSongOperationMenuInput(ch);
+                    break;
                 case AppState::SETTINGS_MENU:
                     handleSettingsInput(ch);
                     break;
@@ -705,6 +852,9 @@ int main() {
                 case AppState::PLAYLIST_SORT:
                     renderSortMenu();
                     break;
+                case AppState::SONG_OPERATION_MENU:
+                    renderSongOperationMenu();
+                    break;
                 case AppState::SETTINGS_MENU:
                     renderSettings();
                     break;
@@ -730,6 +880,9 @@ int main() {
                             break;
                         case AppState::PLAYLIST_EDIT:
                             drawHelp(PLAYLIST_EDIT_HELP);
+                            break;
+                        case AppState::SONG_OPERATION_MENU:
+                            drawHelp(SONG_OPERATION_MENU_HELP);
                             break;
                         case AppState::ADD_TO_PLAYLIST:
                             drawHelp(ADD_TO_PLAYLIST_HELP);

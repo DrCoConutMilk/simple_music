@@ -78,6 +78,7 @@ extern const HelpInfo MAIN_MENU_HELP;
 extern const HelpInfo PLAYLIST_MANAGER_HELP;
 extern const HelpInfo PLAYLIST_MENU_HELP;
 extern const HelpInfo PLAYLIST_VIEW_HELP;
+extern const HelpInfo SONG_OPERATION_MENU_HELP;
 extern const HelpInfo PLAYLIST_EDIT_HELP;
 extern const HelpInfo ADD_TO_PLAYLIST_HELP;
 extern const HelpInfo SORT_MENU_HELP;

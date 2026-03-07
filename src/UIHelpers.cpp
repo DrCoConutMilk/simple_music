@@ -60,6 +60,17 @@ const HelpInfo PLAYLIST_VIEW_HELP = {
     }
 };
 
+const HelpInfo SONG_OPERATION_MENU_HELP = {
+    "歌曲操作菜单帮助",
+    {
+        {"↑ ↓", "上下移动"},
+        {"PgUp/PgDn", "翻页"},
+        {"Enter", "选择操作"},
+        {"H", "帮助"},
+        {"Q", "返回歌曲列表"}
+    }
+};
+
 const HelpInfo PLAYLIST_EDIT_HELP = {
     "创建歌单帮助",
     {

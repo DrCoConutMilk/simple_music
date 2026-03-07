@@ -23,6 +23,7 @@ enum class AppState {
     PLAYLIST_CREATE, 
     PLAYLIST_EDIT, 
     PLAYLIST_VIEW, 
+    SONG_OPERATION_MENU, // 歌曲操作菜单
     PLAYLIST_SORT,
     ADD_TO_PLAYLIST,
     HELP 
@@ -51,6 +52,7 @@ public:
     void renamePlaylist(int index, const std::string& new_name);
     void addSongsFromDirectory(int playlist_index, const std::string& dir_path);
     void addCurrentSongToPlaylist(int playlist_index);
+    void addSongToPlaylist(int playlist_index, const std::string& song_path);
     void removeSongFromPlaylist(int playlist_index, int song_index);
     void sortPlaylist(int playlist_index, SortBy by, SortOrder order);
     
@@ -61,12 +63,13 @@ public:
     int currentPlaylistIndex = -1; // 当前播放的歌单索引
     int currentSongIndex = 0;      // 当前播放的歌曲索引
 
-    bool isInitialState = true; // 标志位：是否为刚启动状态
+
     
     MusicPlayer& getPlayer() { return player; }
     std::mutex& getMutex() { return dataMutex; }
     bool isRunning() { return running; }
     void stop() { running = false; }
+    void requestLoad() { needLoad = true; }
     
     // 获取当前播放列表（用于兼容旧代码）
     std::vector<std::string> getCurrentPlaylistPaths() const;
@@ -88,6 +91,7 @@ private:
     MusicPlayer player;
     std::atomic<bool> running{true};
     std::atomic<bool> needLoad{false};
+    std::atomic<bool> isStartingUp{true}; // 是否为启动状态
     std::thread playerThread;
     std::mutex dataMutex;
 };

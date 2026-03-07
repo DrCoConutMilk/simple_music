@@ -14,6 +14,8 @@ AppController::AppController() {
 AppController::~AppController() {
     running = false;
     if (playerThread.joinable()) playerThread.join();
+    // 程序退出时保存配置
+    saveConfig();
 }
 
 void AppController::init() {
@@ -23,6 +25,7 @@ void AppController::init() {
     // 不再创建默认歌单，用户需要手动创建
     if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
         needLoad = true;
+        isStartingUp = true; // 设置为启动状态
     }
 }
 
@@ -37,25 +40,18 @@ void AppController::playbackLoop() {
                 auto& playlist = playlists[currentPlaylistIndex];
                 if (!playlist->empty()) {
                     // 自动切歌判断逻辑
-                    // 如果当前没在播，且没暂停
-                    if (!player.isPlaying() && !player.isPaused()) {
-                        
-                        if (isInitialState) {
-                            // 启动后的第一次：直接加载当前索引(0)，不自增
-                            needLoad = true;
-                            isInitialState = false; 
-                        } else {
-                            // 之后的情况：说明上一首歌真的播完了，切下一首
-                            currentSongIndex = (currentSongIndex + 1) % playlist->size();
-                            needLoad = true;
-                        }
-                    }
-
                     if (needLoad) {
+                        // 需要加载歌曲（启动时恢复播放或手动切歌）
                         path_to_load = playlist->getSongs()[currentSongIndex].path;
                         needLoad = false;
-                        // 如果是手动触发的加载，也要关闭初始状态标记
-                        isInitialState = false; 
+                        // 如果是启动状态，现在应该结束了
+                        if (isStartingUp) {
+                            isStartingUp = false;
+                        }
+                    } else if (!player.isPlaying() && !player.isPaused() && !isStartingUp) {
+                        // 歌曲播放完毕，自动切到下一首（排除启动状态）
+                        currentSongIndex = (currentSongIndex + 1) % playlist->size();
+                        path_to_load = playlist->getSongs()[currentSongIndex].path;
                     }
                 }
             }
@@ -206,7 +202,22 @@ void AppController::addCurrentSongToPlaylist(int playlist_index) {
         auto& playlist = playlists[playlist_index];
         std::string current_path = player.getCurrentFilePath();
         if (!current_path.empty()) {
-            playlist->addSong(current_path);
+            // 查重：如果歌曲已经在歌单中，不重复添加
+            if (!playlist->containsSong(current_path)) {
+                playlist->addSong(current_path);
+                savePlaylist(playlist_index);
+            }
+        }
+    }
+}
+
+void AppController::addSongToPlaylist(int playlist_index, const std::string& song_path) {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    if (playlist_index >= 0 && playlist_index < (int)playlists.size()) {
+        auto& playlist = playlists[playlist_index];
+        // 查重：如果歌曲已经在歌单中，不重复添加
+        if (!playlist->containsSong(song_path)) {
+            playlist->addSong(song_path);
             savePlaylist(playlist_index);
         }
     }
