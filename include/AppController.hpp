@@ -63,7 +63,9 @@ public:
     int currentPlaylistIndex = -1; // 当前播放的歌单索引
     int currentSongIndex = 0;      // 当前播放的歌曲索引
 
-
+    // 乱序播放相关
+    std::vector<int> shuffleOrder; // 乱序索引映射：shuffleOrder[乱序索引] = 原始索引
+    bool needShuffleUpdate = false; // 需要更新乱序列表
     
     MusicPlayer& getPlayer() { return player; }
     std::mutex& getMutex() { return dataMutex; }
@@ -71,11 +73,30 @@ public:
     void stop() { running = false; }
     void requestLoad() { needLoad = true; }
     
+    // 获取当前播放模式
+    PlayMode getPlayMode() const { return mode; }
+    
     // 获取当前播放列表（用于兼容旧代码）
     std::vector<std::string> getCurrentPlaylistPaths() const;
     
     // 获取当前歌曲路径
     std::string getCurrentSongPath() const;
+    
+    // 获取当前播放的歌曲（考虑乱序模式）
+    const SongEntry& getCurrentSong() const;
+    
+    // 获取当前播放列表的歌曲数量（考虑乱序模式）
+    int getCurrentPlaylistSize() const;
+    
+    // 获取歌曲（考虑乱序模式）
+    const SongEntry& getSongAt(int index) const;
+    
+    // 根据歌曲路径查找索引（考虑乱序模式）
+    int findSongIndexByPath(const std::string& path) const;
+    
+private:
+    // 生成乱序播放列表
+    void generateShuffleOrder();
 
 private:
     void loadConfig();

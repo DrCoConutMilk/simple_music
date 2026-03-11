@@ -1,6 +1,6 @@
 # Simple Music Player 使用说明
 
-## 版本 v0.2.0 - 歌单系统
+## 版本 v1.0.1 - 修复乱序播放bug
 
 ### 启动程序
 ```bash

@@ -48,28 +48,32 @@ void renderPlaying() {
         mvprintw(LINES / 2, (COLS - 20) / 2, "--- 暂无歌曲 ---");
         mvprintw(LINES / 2 + 1, (COLS - 30) / 2, "请按 [M] 进入菜单选择歌单");
     } else {
-        auto& song = player.getCurrentSong();
+        // 获取当前播放的歌曲信息（从MusicPlayer获取，包含时长和歌词）
+        auto& player_song = player.getCurrentSong();
         double elapsed = player.getElapsedSeconds();
+        
+        // 获取歌曲基本信息（从AppController获取，考虑乱序模式）
+        auto& song_info = ctrl.getCurrentSong();
 
         mvprintw(3, 2, "当前播放：[%d/%d] %s - %s",
-                 ctrl.currentSongIndex + 1, (int)ctrl.playlists[ctrl.currentPlaylistIndex]->size(),
-                 song.title.c_str(), song.artist.c_str());
+                 ctrl.currentSongIndex + 1, ctrl.getCurrentPlaylistSize(),
+                 song_info.title.c_str(), song_info.artist.c_str());
 
         // 歌词显示
         int lyricIdx = -1;
-        for (int i = 0; i < (int)song.lyrics.size(); ++i) {
-            if (elapsed >= song.lyrics[i].timestamp)
+        for (int i = 0; i < (int)player_song.lyrics.size(); ++i) {
+            if (elapsed >= player_song.lyrics[i].timestamp)
                 lyricIdx = i;
             else
                 break;
         }
         for (int offset = -1; offset <= 1; ++offset) {
             int idx = lyricIdx + offset;
-            if (idx >= 0 && idx < (int)song.lyrics.size()) {
+            if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
                 if (offset == 0)
                     attron(COLOR_PAIR(1) | A_BOLD);
                 mvprintw(8 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", 
-                        (offset == 0 ? ">> " : ""), song.lyrics[idx].text.c_str());
+                        (offset == 0 ? ">> " : ""), player_song.lyrics[idx].text.c_str());
                 if (offset == 0)
                     attroff(COLOR_PAIR(1) | A_BOLD);
             }
@@ -77,11 +81,11 @@ void renderPlaying() {
 
         // 进度条
         int barWidth = std::max(10, COLS - 20);
-        int pos = (song.duration > 0) ? (int)(elapsed / song.duration * barWidth) : 0;
+        int pos = (player_song.duration > 0) ? (int)(elapsed / player_song.duration * barWidth) : 0;
         mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed / 60, (int)elapsed % 60);
         for (int i = 0; i < barWidth; ++i)
             addch(i < pos ? '=' : (i == pos ? '>' : ' '));
-        printw("] %02d:%02d", (int)song.duration / 60, (int)song.duration % 60);
+        printw("] %02d:%02d", (int)player_song.duration / 60, (int)player_song.duration % 60);
     }
     mvprintw(LINES - 4, 2, "[H]帮助");
 }
@@ -149,12 +153,29 @@ void renderPlaylistView() {
     auto& playlist = ctrl.playlists[current_selected_playlist_index];
     std::vector<std::string> options;
     
-    // 添加歌曲列表
-    for (const auto& song : playlist->getSongs()) {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "%s - %s", 
-                song.title.c_str(), song.artist.c_str());
-        options.push_back(buffer);
+    // 检查是否正在查看当前播放的歌单且处于乱序模式
+    bool is_current_playlist_shuffled = (current_selected_playlist_index == ctrl.currentPlaylistIndex && 
+                                         ctrl.getPlayMode() == PlayMode::SHUFFLE);
+    
+    if (is_current_playlist_shuffled) {
+        // 乱序模式下查看当前播放列表：显示乱序顺序
+        // 注意：这里需要访问ctrl的shuffleOrder，但它是私有成员
+        // 我们可以通过getSongAt()函数来获取乱序后的歌曲
+        for (int i = 0; i < (int)playlist->size(); ++i) {
+            const auto& song = ctrl.getSongAt(i);
+            char buffer[256];
+            snprintf(buffer, sizeof(buffer), "%s - %s", 
+                    song.title.c_str(), song.artist.c_str());
+            options.push_back(buffer);
+        }
+    } else {
+        // 其他情况：显示原始顺序
+        for (const auto& song : playlist->getSongs()) {
+            char buffer[256];
+            snprintf(buffer, sizeof(buffer), "%s - %s", 
+                    song.title.c_str(), song.artist.c_str());
+            options.push_back(buffer);
+        }
     }
     
     // 如果没有歌曲，显示提示
@@ -163,7 +184,9 @@ void renderPlaylistView() {
     }
     
     char title[128];
-    snprintf(title, sizeof(title), "歌单: %s - 歌曲列表", playlist->name.c_str());
+    snprintf(title, sizeof(title), "歌单: %s - 歌曲列表%s", 
+             playlist->name.c_str(),
+             is_current_playlist_shuffled ? " (乱序)" : "");
     drawPageMenu(title, options, playlist_view_page, false);
 }
 
@@ -179,10 +202,25 @@ void renderSongOperationMenu() {
         return;
     }
     
-    const auto& song = playlist->getSongs()[current_operating_song_index];
-    char song_info[256];
-    snprintf(song_info, sizeof(song_info), "%s - %s", 
-             song.title.c_str(), song.artist.c_str());
+    // 获取歌曲信息（考虑当前是否在浏览当前播放的歌单）
+    const SongEntry* song_ptr = nullptr;
+    if (current_selected_playlist_index == ctrl.currentPlaylistIndex && 
+        ctrl.currentPlaylistIndex >= 0) {
+        // 如果是当前播放的歌单，使用AppController的接口（考虑乱序模式）
+        song_ptr = &ctrl.getSongAt(current_operating_song_index);
+    } else {
+        // 其他歌单，直接访问
+        if (current_operating_song_index >= 0 && 
+            current_operating_song_index < (int)playlist->size()) {
+            song_ptr = &playlist->getSongs()[current_operating_song_index];
+        }
+    }
+    
+    char song_info[256] = "未知歌曲";
+    if (song_ptr) {
+        snprintf(song_info, sizeof(song_info), "%s - %s", 
+                 song_ptr->title.c_str(), song_ptr->artist.c_str());
+    }
     
     std::vector<std::string> options = {
         "播放此歌曲",
@@ -537,9 +575,16 @@ void handleSongOperationMenuInput(int ch) {
                     current_operating_song_index >= 0) {
                     auto& playlist = ctrl.playlists[current_selected_playlist_index];
                     if (current_operating_song_index < (int)playlist->size()) {
-                        // 获取要添加的歌曲路径
-                        const auto& song = playlist->getSongs()[current_operating_song_index];
-                        song_to_add_path = song.path;
+                        // 获取要添加的歌曲路径（考虑当前是否在浏览当前播放的歌单）
+                        if (current_selected_playlist_index == ctrl.currentPlaylistIndex && 
+                            ctrl.currentPlaylistIndex >= 0) {
+                            // 如果是当前播放的歌单，使用AppController的接口（考虑乱序模式）
+                            song_to_add_path = ctrl.getSongAt(current_operating_song_index).path;
+                        } else {
+                            // 其他歌单，直接访问
+                            const auto& song = playlist->getSongs()[current_operating_song_index];
+                            song_to_add_path = song.path;
+                        }
                         // 进入添加到歌单界面
                         ctrl.state = AppState::ADD_TO_PLAYLIST;
                         add_to_playlist_page.selected_index = 0;
@@ -734,9 +779,16 @@ void handlePlayModeInput(int ch) {
     if (ch == KEY_UP || ch == KEY_DOWN) {
         main_menu_page.selected_index = 1 - main_menu_page.selected_index;
     } else if (ch == '\n' || ch == 13) {
-        if (main_menu_page.selected_index == 0) {
+        // 根据用户的选择设置播放模式
+        PlayMode selected_mode = (main_menu_page.selected_index == 0) ? 
+                                 PlayMode::SEQUENTIAL : PlayMode::SHUFFLE;
+        
+        // 只有当选择的模式与当前模式不同时才调用togglePlayMode
+        if (selected_mode != ctrl.getPlayMode()) {
             ctrl.togglePlayMode();
         }
+        // 如果选择的模式与当前模式相同，不进行任何操作（用户可能只是确认当前设置）
+        
         ctrl.state = AppState::SETTINGS_MENU;
         main_menu_page.selected_index = 0;
     } else if (ch == 'h' || ch == 'H') {

@@ -22,6 +22,20 @@ void AppController::init() {
     loadConfig();
     loadPlaylists();
     
+    // 如果当前是乱序模式且有播放列表，生成乱序列表
+    if (mode == PlayMode::SHUFFLE && currentPlaylistIndex >= 0 && 
+        currentPlaylistIndex < (int)playlists.size()) {
+        auto& playlist = playlists[currentPlaylistIndex];
+        if (!playlist->empty()) {
+            generateShuffleOrder();
+            
+            // 确保currentSongIndex在乱序列表的有效范围内
+            if (currentSongIndex < 0 || currentSongIndex >= (int)shuffleOrder.size()) {
+                currentSongIndex = 0;
+            }
+        }
+    }
+    
     // 不再创建默认歌单，用户需要手动创建
     if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
         needLoad = true;
@@ -36,13 +50,25 @@ void AppController::playbackLoop() {
         {
             std::lock_guard<std::mutex> lock(dataMutex);
             
+            // 如果需要更新乱序列表（比如刚切换到乱序模式）
+            if (needShuffleUpdate) {
+                if (mode == PlayMode::SHUFFLE && currentPlaylistIndex >= 0 && 
+                    currentPlaylistIndex < (int)playlists.size()) {
+                    auto& playlist = playlists[currentPlaylistIndex];
+                    if (!playlist->empty() && shuffleOrder.empty()) {
+                        generateShuffleOrder();
+                    }
+                }
+                needShuffleUpdate = false;
+            }
+            
             if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
                 auto& playlist = playlists[currentPlaylistIndex];
                 if (!playlist->empty()) {
                     // 自动切歌判断逻辑
                     if (needLoad) {
                         // 需要加载歌曲（启动时恢复播放或手动切歌）
-                        path_to_load = playlist->getSongs()[currentSongIndex].path;
+                        path_to_load = getCurrentSong().path;
                         needLoad = false;
                         // 如果是启动状态，现在应该结束了
                         if (isStartingUp) {
@@ -51,7 +77,7 @@ void AppController::playbackLoop() {
                     } else if (!player.isPlaying() && !player.isPaused() && !isStartingUp) {
                         // 歌曲播放完毕，自动切到下一首（排除启动状态）
                         currentSongIndex = (currentSongIndex + 1) % playlist->size();
-                        path_to_load = playlist->getSongs()[currentSongIndex].path;
+                        path_to_load = getCurrentSong().path;
                     }
                 }
             }
@@ -115,34 +141,96 @@ void AppController::playAtIndex(int index) {
 }
 
 void AppController::togglePlayMode() {
-    mode = (mode == PlayMode::SEQUENTIAL ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
-    saveConfig();
-    // 如果当前有播放列表，重新应用播放模式
+    std::lock_guard<std::mutex> lock(dataMutex);
+    
+    // 记录切换前的模式
+    PlayMode old_mode = mode;
+    
     if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
         auto& playlist = playlists[currentPlaylistIndex];
-        if (mode == PlayMode::SHUFFLE) {
-            // 保存当前歌曲
-            std::string current_song = playlist->empty() ? "" : playlist->getSongs()[currentSongIndex].path;
-            
-            // 创建临时副本并打乱
-            auto songs = playlist->getSongs();
-            std::random_device rd;
-            std::mt19937 g(rd());
-            std::shuffle(songs.begin(), songs.end(), g);
-            
-            // 更新歌单
-            playlist->clear();
-            for (const auto& song : songs) {
-                playlist->addSong(song);
+        if (!playlist->empty()) {
+            // 在切换模式前获取当前歌曲路径（使用旧模式）
+            std::string current_song_path;
+            if (old_mode == PlayMode::SEQUENTIAL) {
+                // 顺序模式：直接使用currentSongIndex
+                if (currentSongIndex >= 0 && currentSongIndex < (int)playlist->size()) {
+                    current_song_path = playlist->getSongs()[currentSongIndex].path;
+                }
+            } else {
+                // 乱序模式：需要通过shuffleOrder映射
+                if (!shuffleOrder.empty() && 
+                    currentSongIndex >= 0 && currentSongIndex < (int)shuffleOrder.size()) {
+                    int original_index = shuffleOrder[currentSongIndex];
+                    if (original_index >= 0 && original_index < (int)playlist->size()) {
+                        current_song_path = playlist->getSongs()[original_index].path;
+                    }
+                }
             }
             
-            // 找到当前歌曲的新位置
-            auto it = std::find_if(songs.begin(), songs.end(), 
-                [&current_song](const SongEntry& song) { return song.path == current_song; });
-            if (it != songs.end()) {
-                currentSongIndex = std::distance(songs.begin(), it);
+            // 如果没获取到歌曲路径，使用第一首
+            if (current_song_path.empty() && !playlist->empty()) {
+                current_song_path = playlist->getSongs()[0].path;
+            }
+            
+            // 现在切换模式
+            mode = (old_mode == PlayMode::SEQUENTIAL ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
+            
+            if (mode == PlayMode::SHUFFLE) {
+                // 切换到乱序模式：生成乱序列表
+                generateShuffleOrder();
+                
+                // 在乱序列表中查找当前歌曲
+                int found_index = -1;
+                for (size_t i = 0; i < shuffleOrder.size(); ++i) {
+                    int original_index = shuffleOrder[i];
+                    if (original_index >= 0 && original_index < (int)playlist->size()) {
+                        if (playlist->getSongs()[original_index].path == current_song_path) {
+                            found_index = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if (found_index >= 0) {
+                    currentSongIndex = found_index;
+                } else {
+                    // 如果没找到，从第一首开始
+                    currentSongIndex = 0;
+                }
+            } else {
+                // 切换到顺序模式
+                if (old_mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
+                    // 从乱序模式切换过来，需要找到当前歌曲在原始列表中的位置
+                    if (currentSongIndex >= 0 && currentSongIndex < (int)shuffleOrder.size()) {
+                        currentSongIndex = shuffleOrder[currentSongIndex];
+                    }
+                }
+                // 清空乱序列表
+                shuffleOrder.clear();
             }
         }
+    }
+    
+    saveConfig();
+    needShuffleUpdate = true;
+}
+
+// 生成乱序播放列表
+void AppController::generateShuffleOrder() {
+    shuffleOrder.clear();
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+        auto& playlist = playlists[currentPlaylistIndex];
+        int size = playlist->size();
+        
+        // 创建顺序索引
+        for (int i = 0; i < size; ++i) {
+            shuffleOrder.push_back(i);
+        }
+        
+        // 打乱索引（使用随机种子）
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::shuffle(shuffleOrder.begin(), shuffleOrder.end(), g);
     }
 }
 
@@ -278,13 +366,7 @@ std::vector<std::string> AppController::getCurrentPlaylistPaths() const {
 }
 
 std::string AppController::getCurrentSongPath() const {
-    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
-        const auto& playlist = playlists[currentPlaylistIndex];
-        if (currentSongIndex >= 0 && currentSongIndex < (int)playlist->size()) {
-            return playlist->getSongs()[currentSongIndex].path;
-        }
-    }
-    return "";
+    return getCurrentSong().path;
 }
 
 // --- 文件路径相关 ---
@@ -417,4 +499,76 @@ void AppController::deletePlaylistFile(int index) {
             fs::rename(old_file, new_file);
         }
     }
+}
+
+// --- 乱序播放相关函数实现 ---
+const SongEntry& AppController::getCurrentSong() const {
+    static SongEntry empty_song;
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+        auto& playlist = playlists[currentPlaylistIndex];
+        if (!playlist->empty()) {
+            int actual_index = currentSongIndex;
+            if (mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
+                // 在乱序模式下，需要映射到原始索引
+                if (currentSongIndex >= 0 && currentSongIndex < (int)shuffleOrder.size()) {
+                    actual_index = shuffleOrder[currentSongIndex];
+                }
+            }
+            if (actual_index >= 0 && actual_index < (int)playlist->size()) {
+                return playlist->getSongs()[actual_index];
+            }
+        }
+    }
+    return empty_song;
+}
+
+int AppController::getCurrentPlaylistSize() const {
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+        return playlists[currentPlaylistIndex]->size();
+    }
+    return 0;
+}
+
+const SongEntry& AppController::getSongAt(int index) const {
+    static SongEntry empty_song;
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+        auto& playlist = playlists[currentPlaylistIndex];
+        if (!playlist->empty()) {
+            int actual_index = index;
+            if (mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
+                // 在乱序模式下，需要映射到原始索引
+                if (index >= 0 && index < (int)shuffleOrder.size()) {
+                    actual_index = shuffleOrder[index];
+                }
+            }
+            if (actual_index >= 0 && actual_index < (int)playlist->size()) {
+                return playlist->getSongs()[actual_index];
+            }
+        }
+    }
+    return empty_song;
+}
+
+int AppController::findSongIndexByPath(const std::string& path) const {
+    if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+        auto& playlist = playlists[currentPlaylistIndex];
+        const auto& songs = playlist->getSongs();
+        
+        // 首先在原始歌单中查找
+        for (size_t i = 0; i < songs.size(); ++i) {
+            if (songs[i].path == path) {
+                // 找到原始索引，如果需要返回乱序索引
+                if (mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
+                    // 在乱序列表中查找这个原始索引
+                    for (size_t j = 0; j < shuffleOrder.size(); ++j) {
+                        if (shuffleOrder[j] == (int)i) {
+                            return j;
+                        }
+                    }
+                }
+                return i;
+            }
+        }
+    }
+    return -1;
 }
