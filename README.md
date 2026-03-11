@@ -17,18 +17,22 @@
 
 ``` text
 simple_music/
-├── build.sh
-├── CMakeLists.txt
-├── include
-│   ├── AppController.hpp
-│   └── MusicPlayer.hpp
-├── LICENSE
-├── music
-├── README.md
-└── src
-    ├── AppController.cpp
-    ├── main.cpp
-    └── MusicPlayer.cpp
+├── build.sh                    # 构建脚本
+├── CMakeLists.txt              # CMake构建配置
+├── include/                    # 头文件目录
+│   ├── AppController.hpp       # 应用控制器
+│   ├── MusicPlayer.hpp         # 音乐播放器
+│   ├── Playlist.hpp            # 歌单管理
+│   └── UIHelpers.hpp           # UI辅助函数
+├── LICENSE                     # 许可证
+├── README.md                   # 项目说明
+├── USAGE.md                    # 使用说明
+└── src/                        # 源代码目录
+    ├── AppController.cpp       # 应用控制器实现
+    ├── main.cpp                # 主程序入口
+    ├── MusicPlayer.cpp         # 音乐播放器实现
+    ├── Playlist.cpp            # 歌单管理实现
+    └── UIHelpers.cpp           # UI辅助函数实现
 ```
 
 ------------------------------------------------------------------------
@@ -52,6 +56,12 @@ CMake
 bash ./build.sh
 ```
 
+构建完成后：
+- 可执行文件：`build/smp`
+- DEB安装包：`build/simple-music-player-*.deb`
+
+------------------------------------------------------------------------
+
 ## 任务清单
 
 ### 已完成 (v1.0.1)
@@ -62,33 +72,86 @@ bash ./build.sh
 -   [ √ ] 翻页菜单系统
 -   [ √ ] 帮助系统 (H键)
 -   [ √ ] 歌单排序功能
+-   [ √ ] 乱序播放功能
 -   [ x ] 歌曲封面显示 //部分终端不支持，已放弃
 
-### 歌单功能详情
+### 计划中
 
-1. **歌单管理**:
-   - 创建歌单 (从目录添加或创建空歌单)
-   - 查看、编辑、浏览播放和删除歌单
-   - 修改歌单名称
-   - 在浏览歌单时删除歌曲
+-   [   ] 快进快退功能
+-   [   ] 单曲循环功能
 
-2. **歌曲管理**:
-   - 播放时将当前歌曲添加到歌单 (自动查重)
-   - 支持 MP3 和 FLAC 格式
-   - 自动解析歌曲元数据 (标题、艺术家、专辑)
+------------------------------------------------------------------------
 
-3. **排序功能**:
-   - 按歌名、歌手、专辑、文件名或最后修改时间排序
-   - 支持正序和倒序排序
+## 数据存储
 
-4. **界面改进**:
-   - 翻页菜单 (PgUp/PgDn 翻页，↑↓ 在当前页移动)
-   - 帮助系统 (按 H 键显示当前界面可用操作)
-   - 统一的按键提示
+程序数据存储在 `~/.config/simple_music_player/` 目录:
 
-### 数据存储
+```
+~/.config/simple_music_player/
+├── config.json              # 主配置文件
+└── song_lists/              # 歌单目录
+    ├── playlist_0.json      # 歌单0
+    ├── playlist_1.json      # 歌单1
+    └── ...
+```
 
-- 配置文件: `~/.config/simple_music_player/config.json`
-- 歌单文件: `~/.config/simple_music_player/song_lists/playlist_*.json`
-- 每个歌单独立保存，便于备份和管理
+### 配置文件格式
+```json
+{
+  "play_mode": "sequential",  // 或 "shuffle"
+  "current_playlist_index": 0,
+  "current_song_index": 0,
+  "playlists_meta": [
+    {
+      "index": 0,
+      "name": "默认歌单",
+      "created_time": 1741348800,
+      "modified_time": 1741348800
+    }
+  ]
+}
+```
 
+### 歌单文件格式
+```json
+{
+  "name": "歌单名称",
+  "created_time": 1741348800,
+  "modified_time": 1741348800,
+  "songs": [
+    {
+      "path": "/path/to/song.mp3",
+      "title": "歌曲标题",
+      "artist": "艺术家",
+      "album": "专辑",
+      "modified_time": 1741348800
+    }
+  ]
+}
+```
+
+------------------------------------------------------------------------
+
+## 版本历史
+
+### v1.0.1 (2026-03-12)
+- 修复乱序播放bug
+- 修复设置界面播放模式选择逻辑
+- 程序启动时自动生成乱序列表
+- 乱序时查看播放列表显示乱序顺序
+
+### v0.2.0 (2026-03-07)
+- 添加歌单系统
+- 添加排序功能
+- 改进界面和帮助系统
+
+### v0.1.0 (2026-03-07)
+- 初始版本
+- 基本播放功能
+- 歌词解析与显示
+
+------------------------------------------------------------------------
+
+## 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
