@@ -31,7 +31,7 @@ enum class AppState {
     HELP 
 };
 
-enum class PlayMode { SEQUENTIAL, SHUFFLE };
+enum class PlayMode { SEQUENTIAL, SHUFFLE, SINGLE };
 
 class AppController {
 public:

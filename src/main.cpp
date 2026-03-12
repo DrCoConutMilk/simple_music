@@ -35,7 +35,18 @@ void enterHelp() {
 // --- 渲染函数 ---
 void renderPlaying() {
     auto& player = ctrl.getPlayer();
-    std::string mode_name = (ctrl.mode == PlayMode::SHUFFLE ? "乱序" : "顺序");
+    std::string mode_name;
+    switch (ctrl.mode) {
+        case PlayMode::SEQUENTIAL:
+            mode_name = "顺序";
+            break;
+        case PlayMode::SHUFFLE:
+            mode_name = "乱序";
+            break;
+        case PlayMode::SINGLE:
+            mode_name = "单曲循环";
+            break;
+    }
     
     // 显示当前歌单信息
     std::string playlist_name = "无歌单";
@@ -213,7 +224,18 @@ void renderCurrentPlaylistView() {
     }
     
     char title[128];
-    std::string mode_name = (ctrl.getPlayMode() == PlayMode::SHUFFLE ? "乱序" : "顺序");
+    std::string mode_name;
+    switch (ctrl.getPlayMode()) {
+        case PlayMode::SEQUENTIAL:
+            mode_name = "顺序";
+            break;
+        case PlayMode::SHUFFLE:
+            mode_name = "乱序";
+            break;
+        case PlayMode::SINGLE:
+            mode_name = "单曲循环";
+            break;
+    }
     std::string playlist_name = "无歌单";
     if (ctrl.currentPlaylistIndex >= 0 && ctrl.currentPlaylistIndex < (int)ctrl.playlists.size()) {
         playlist_name = ctrl.playlists[ctrl.currentPlaylistIndex]->name;
@@ -341,6 +363,7 @@ void renderPlayMode() {
     std::vector<std::string> options = {
         "顺序播放",
         "乱序播放",
+        "单曲循环",
         "返回设置"
     };
     drawPageMenu("播放模式", options, main_menu_page, false);
@@ -964,18 +987,39 @@ void handleSettingsInput(int ch) {
 }
 
 void handlePlayModeInput(int ch) {
-    if (ch == KEY_UP || ch == KEY_DOWN) {
-        main_menu_page.selected_index = 1 - main_menu_page.selected_index;
+    if (ch == KEY_UP) {
+        main_menu_page.moveUp();
+    } else if (ch == KEY_DOWN) {
+        main_menu_page.moveDown();
+    } else if (ch == KEY_PPAGE) {
+        main_menu_page.prevPage();
+    } else if (ch == KEY_NPAGE) {
+        main_menu_page.nextPage();
     } else if (ch == '\n' || ch == 13) {
         // 根据用户的选择设置播放模式
-        PlayMode selected_mode = (main_menu_page.selected_index == 0) ? 
-                                 PlayMode::SEQUENTIAL : PlayMode::SHUFFLE;
+        PlayMode selected_mode;
+        switch (main_menu_page.selected_index) {
+            case 0:
+                selected_mode = PlayMode::SEQUENTIAL;
+                break;
+            case 1:
+                selected_mode = PlayMode::SHUFFLE;
+                break;
+            case 2:
+                selected_mode = PlayMode::SINGLE;
+                break;
+            default:
+                // 返回设置
+                ctrl.state = AppState::SETTINGS_MENU;
+                main_menu_page.selected_index = 0;
+                return;
+        }
         
         // 只有当选择的模式与当前模式不同时才调用togglePlayMode
-        if (selected_mode != ctrl.getPlayMode()) {
+        // 由于togglePlayMode现在是循环切换，我们需要多次调用直到达到目标模式
+        while (ctrl.getPlayMode() != selected_mode) {
             ctrl.togglePlayMode();
         }
-        // 如果选择的模式与当前模式相同，不进行任何操作（用户可能只是确认当前设置）
         
         ctrl.state = AppState::SETTINGS_MENU;
         main_menu_page.selected_index = 0;

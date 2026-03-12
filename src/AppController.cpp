@@ -75,9 +75,15 @@ void AppController::playbackLoop() {
                             isStartingUp = false;
                         }
                     } else if (!player.isPlaying() && !player.isPaused() && !isStartingUp) {
-                        // 歌曲播放完毕，自动切到下一首（排除启动状态）
-                        currentSongIndex = (currentSongIndex + 1) % playlist->size();
-                        path_to_load = getCurrentSong().path;
+                        // 歌曲播放完毕，根据播放模式自动处理
+                        if (mode == PlayMode::SINGLE) {
+                            // 单曲循环模式：重新播放当前歌曲
+                            path_to_load = getCurrentSong().path;
+                        } else {
+                            // 顺序或乱序模式：切到下一首
+                            currentSongIndex = (currentSongIndex + 1) % playlist->size();
+                            path_to_load = getCurrentSong().path;
+                        }
                     }
                 }
             }
@@ -172,8 +178,14 @@ void AppController::togglePlayMode() {
                 current_song_path = playlist->getSongs()[0].path;
             }
             
-            // 现在切换模式
-            mode = (old_mode == PlayMode::SEQUENTIAL ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
+            // 现在切换模式：顺序 -> 乱序 -> 单曲循环 -> 顺序
+            if (old_mode == PlayMode::SEQUENTIAL) {
+                mode = PlayMode::SHUFFLE;
+            } else if (old_mode == PlayMode::SHUFFLE) {
+                mode = PlayMode::SINGLE;
+            } else {
+                mode = PlayMode::SEQUENTIAL;
+            }
             
             if (mode == PlayMode::SHUFFLE) {
                 // 切换到乱序模式：生成乱序列表
@@ -197,7 +209,7 @@ void AppController::togglePlayMode() {
                     // 如果没找到，从第一首开始
                     currentSongIndex = 0;
                 }
-            } else {
+            } else if (mode == PlayMode::SEQUENTIAL) {
                 // 切换到顺序模式
                 if (old_mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
                     // 从乱序模式切换过来，需要找到当前歌曲在原始列表中的位置
@@ -206,6 +218,18 @@ void AppController::togglePlayMode() {
                     }
                 }
                 // 清空乱序列表
+                shuffleOrder.clear();
+            } else {
+                // 切换到单曲循环模式
+                // 单曲循环模式不需要特殊处理，保持当前状态
+                // 如果是从乱序模式切换过来，需要处理索引
+                if (old_mode == PlayMode::SHUFFLE && !shuffleOrder.empty()) {
+                    // 从乱序模式切换过来，需要找到当前歌曲在原始列表中的位置
+                    if (currentSongIndex >= 0 && currentSongIndex < (int)shuffleOrder.size()) {
+                        currentSongIndex = shuffleOrder[currentSongIndex];
+                    }
+                }
+                // 清空乱序列表（单曲循环不需要乱序列表）
                 shuffleOrder.clear();
             }
         }
@@ -397,7 +421,20 @@ fs::path AppController::getPlaylistFilePath(int index) {
 // --- 配置持久化 ---
 void AppController::saveConfig() {
     json j;
-    j["play_mode"] = (mode == PlayMode::SHUFFLE ? "shuffle" : "sequential");
+    // 保存播放模式
+    std::string mode_str;
+    switch (mode) {
+        case PlayMode::SEQUENTIAL:
+            mode_str = "sequential";
+            break;
+        case PlayMode::SHUFFLE:
+            mode_str = "shuffle";
+            break;
+        case PlayMode::SINGLE:
+            mode_str = "single";
+            break;
+    }
+    j["play_mode"] = mode_str;
     j["current_playlist_index"] = currentPlaylistIndex;
     j["current_song_index"] = currentSongIndex;
     
@@ -423,7 +460,15 @@ void AppController::loadConfig() {
     std::ifstream i(p);
     try {
         json j = json::parse(i);
-        mode = (j.value("play_mode", "sequential") == "shuffle" ? PlayMode::SHUFFLE : PlayMode::SEQUENTIAL);
+        // 加载播放模式
+        std::string mode_str = j.value("play_mode", "sequential");
+        if (mode_str == "shuffle") {
+            mode = PlayMode::SHUFFLE;
+        } else if (mode_str == "single") {
+            mode = PlayMode::SINGLE;
+        } else {
+            mode = PlayMode::SEQUENTIAL; // 默认值
+        }
         currentPlaylistIndex = j.value("current_playlist_index", -1);
         currentSongIndex = j.value("current_song_index", 0);
         
