@@ -22,8 +22,10 @@ enum class AppState {
     PLAYLIST_MENU,      // 歌单功能菜单
     PLAYLIST_CREATE, 
     PLAYLIST_EDIT, 
-    PLAYLIST_VIEW, 
-    SONG_OPERATION_MENU, // 歌曲操作菜单
+    PLAYLIST_VIEW,      // 歌单浏览（查看歌单内容）
+    CURRENT_PLAYLIST_VIEW, // 当前播放列表视图
+    CURRENT_PLAYLIST_SONG_MENU, // 当前播放列表歌曲操作菜单
+    SONG_OPERATION_MENU, // 歌曲操作菜单（歌单浏览）
     PLAYLIST_SORT,
     ADD_TO_PLAYLIST,
     HELP 
@@ -66,6 +68,9 @@ public:
     // 乱序播放相关
     std::vector<int> shuffleOrder; // 乱序索引映射：shuffleOrder[乱序索引] = 原始索引
     bool needShuffleUpdate = false; // 需要更新乱序列表
+    
+    // 获取乱序列表（供UI使用）
+    const std::vector<int>& getShuffleOrder() const { return shuffleOrder; }
     
     MusicPlayer& getPlayer() { return player; }
     std::mutex& getMutex() { return dataMutex; }
