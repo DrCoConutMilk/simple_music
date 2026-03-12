@@ -184,9 +184,22 @@ void drawHelp(const HelpInfo& help) {
     int start_y = 1;
     mvprintw(start_y, 2, "--- %s ---", help.title.c_str());
     
+    // 计算最大按键名称长度
+    int max_key_len = 0;
+    for (const auto& cmd : help.commands) {
+        int len = cmd.first.length();
+        if (len > max_key_len) {
+            max_key_len = len;
+        }
+    }
+    
+    // 确保最小宽度为6，最大宽度不超过20
+    max_key_len = std::max(6, std::min(max_key_len, 20));
+    
     int y = start_y + 2;
     for (const auto& cmd : help.commands) {
-        mvprintw(y, 4, "%-10s : %s", cmd.first.c_str(), cmd.second.c_str());
+        // 使用动态计算的宽度进行对齐
+        mvprintw(y, 4, "%-*s : %s", max_key_len, cmd.first.c_str(), cmd.second.c_str());
         y++;
     }
     
