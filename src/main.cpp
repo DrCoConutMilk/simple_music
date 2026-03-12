@@ -25,6 +25,8 @@ int current_selected_playlist_index = -1;  // 当前选中的歌单索引
 int current_operating_song_index = -1;     // 当前操作的歌曲索引（歌单浏览）
 int current_playlist_song_index = -1;      // 当前播放列表中选中的歌曲索引
 std::string song_to_add_path = "";         // 要添加的歌曲路径（如果为空，则添加当前播放的歌曲）
+SortBy selected_sort_by = SortBy::TITLE;   // 选择的排序方式
+PageMenu sort_order_page;                 // 排序顺序菜单页面
 
 // --- 辅助函数 ---
 void enterHelp() {
@@ -357,6 +359,15 @@ void renderSettings() {
         "返回主菜单"
     };
     drawPageMenu("设置", options, main_menu_page, false);
+}
+
+void renderSortOrderMenu() {
+    std::vector<std::string> options = {
+        "升序 (A-Z, 旧到新)",
+        "降序 (Z-A, 新到旧)",
+        "返回排序方式"
+    };
+    drawPageMenu("排序顺序", options, sort_order_page, false);
 }
 
 void renderPlayMode() {
@@ -944,14 +955,11 @@ void handleSortMenuInput(int ch) {
                 default: by = SortBy::TITLE;
             }
             
-            std::string order_str = inputField("排序顺序 (A:升序, D:降序): ");
-            SortOrder order = SortOrder::ASCENDING;
-            if (!order_str.empty() && (order_str[0] == 'd' || order_str[0] == 'D')) {
-                order = SortOrder::DESCENDING;
-            }
-            
-            ctrl.sortPlaylist(current_selected_playlist_index, by, order);
-            ctrl.state = AppState::PLAYLIST_MENU;
+            // 保存选择的排序方式，然后进入排序顺序菜单
+            selected_sort_by = by;
+            ctrl.state = AppState::SORT_ORDER_MENU;
+            sort_order_page.selected_index = 0;
+            sort_order_page.update(2); // 升序和降序两个选项
         } else if (selected == 5) {
             // "返回歌单功能菜单"
             ctrl.state = AppState::PLAYLIST_MENU;
@@ -960,6 +968,37 @@ void handleSortMenuInput(int ch) {
         enterHelp();
     } else if (ch == 'q' || ch == 'Q') {
         ctrl.state = AppState::PLAYLIST_VIEW;
+    }
+}
+
+void handleSortOrderMenuInput(int ch) {
+    if (ch == KEY_UP) {
+        sort_order_page.moveUp();
+    } else if (ch == KEY_DOWN) {
+        sort_order_page.moveDown();
+    } else if (ch == KEY_PPAGE) {
+        sort_order_page.prevPage();
+    } else if (ch == KEY_NPAGE) {
+        sort_order_page.nextPage();
+    } else if (ch == '\n' || ch == 13) {
+        int selected = sort_order_page.selected_index;
+        
+        if (selected == 0) {
+            // 升序
+            ctrl.sortPlaylist(current_selected_playlist_index, selected_sort_by, SortOrder::ASCENDING);
+            ctrl.state = AppState::PLAYLIST_MENU;
+        } else if (selected == 1) {
+            // 降序
+            ctrl.sortPlaylist(current_selected_playlist_index, selected_sort_by, SortOrder::DESCENDING);
+            ctrl.state = AppState::PLAYLIST_MENU;
+        } else if (selected == 2) {
+            // 返回排序方式
+            ctrl.state = AppState::PLAYLIST_SORT;
+        }
+    } else if (ch == 'h' || ch == 'H') {
+        enterHelp();
+    } else if (ch == 'q' || ch == 'Q') {
+        ctrl.state = AppState::PLAYLIST_SORT;
     }
 }
 
@@ -1053,6 +1092,7 @@ int main() {
     playlist_edit_page.items_per_page = 10;
     add_to_playlist_page.items_per_page = 15;
     sort_menu_page.items_per_page = 10;
+    sort_order_page.items_per_page = 10;
 
     while (ctrl.isRunning()) {
         // 处理输入
@@ -1097,6 +1137,9 @@ int main() {
                     break;
                 case AppState::PLAYLIST_SORT:
                     handleSortMenuInput(ch);
+                    break;
+                case AppState::SORT_ORDER_MENU:
+                    handleSortOrderMenuInput(ch);
                     break;
                 case AppState::SONG_OPERATION_MENU:
                     handleSongOperationMenuInput(ch);
@@ -1150,6 +1193,9 @@ int main() {
                 case AppState::PLAYLIST_SORT:
                     renderSortMenu();
                     break;
+                case AppState::SORT_ORDER_MENU:
+                    renderSortOrderMenu();
+                    break;
                 case AppState::SONG_OPERATION_MENU:
                     renderSongOperationMenu();
                     break;
@@ -1193,6 +1239,9 @@ int main() {
                             break;
                         case AppState::PLAYLIST_SORT:
                             drawHelp(SORT_MENU_HELP);
+                            break;
+                        case AppState::SORT_ORDER_MENU:
+                            drawHelp(SORT_MENU_HELP); // 使用相同的帮助信息
                             break;
                         case AppState::SETTINGS_MENU:
                             drawHelp(SETTINGS_HELP);

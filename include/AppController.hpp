@@ -27,6 +27,7 @@ enum class AppState {
     CURRENT_PLAYLIST_SONG_MENU, // 当前播放列表歌曲操作菜单
     SONG_OPERATION_MENU, // 歌曲操作菜单（歌单浏览）
     PLAYLIST_SORT,
+    SORT_ORDER_MENU,    // 排序顺序菜单（升序/降序）
     ADD_TO_PLAYLIST,
     HELP 
 };
