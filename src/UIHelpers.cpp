@@ -129,6 +129,12 @@ const HelpInfo PLAY_MODE_HELP = {
 
 void drawPageMenu(const std::string& title, const std::vector<std::string>& options, 
                   PageMenu& page_menu, bool show_numbers) {
+    // 动态计算每页显示的项目数，基于终端高度
+    int available_height = LINES - 10; // 减去标题、页码信息、底部提示等空间
+    int dynamic_items_per_page = std::max(5, available_height); // 至少显示5项
+    
+    // 启用动态分页
+    page_menu.setDynamicPaging(true, dynamic_items_per_page);
     page_menu.update(options.size());
     
     int start_y = 1;
@@ -172,11 +178,15 @@ void drawPageMenu(const std::string& title, const std::vector<std::string>& opti
         // 显示页码信息
         int page_count = page_menu.getPageCount();
         if (page_count > 1) {
-            mvprintw(start_y + 2 + page_menu.items_per_page + 1, 2, 
+            // 计算页码显示位置（在列表下方）
+            int page_info_y = start_y + 2 + (page_end - page_start) + 2;
+            mvprintw(page_info_y, 2, 
                     "第 %d/%d 页 (共 %d 项)", 
                     page_menu.current_page + 1, page_count, page_menu.total_items);
         }
     }
+    
+    // 注意：动态分页保持启用状态，这样输入处理函数也会使用动态分页
     
     // 底部提示 - 只显示 [H] 帮助
     mvprintw(LINES - 4, 2, "[H]帮助");

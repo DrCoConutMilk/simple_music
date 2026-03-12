@@ -11,25 +11,48 @@ struct PageMenu {
     int items_per_page = 20;
     int selected_index = 0;
     int total_items = 0;
+    bool use_dynamic_paging = false;  // 是否使用动态分页
+    int dynamic_items_per_page = 20;  // 动态计算的每页项目数
     
     void update(int total) {
         total_items = total;
         if (selected_index >= total_items) {
             selected_index = total_items > 0 ? total_items - 1 : 0;
         }
-        current_page = selected_index / items_per_page;
+        // 根据是否使用动态分页来计算当前页面
+        if (use_dynamic_paging) {
+            current_page = selected_index / dynamic_items_per_page;
+        } else {
+            current_page = selected_index / items_per_page;
+        }
+    }
+    
+    // 设置动态分页
+    void setDynamicPaging(bool use_dynamic, int dynamic_items = 20) {
+        use_dynamic_paging = use_dynamic;
+        if (use_dynamic) {
+            dynamic_items_per_page = dynamic_items;
+        }
+    }
+    
+    // 获取当前使用的每页项目数
+    int getEffectiveItemsPerPage() const {
+        return use_dynamic_paging ? dynamic_items_per_page : items_per_page;
     }
     
     int getPageCount() const {
-        return (total_items + items_per_page - 1) / items_per_page;
+        int effective_items = getEffectiveItemsPerPage();
+        return (total_items + effective_items - 1) / effective_items;
     }
     
     int getPageStart() const {
-        return current_page * items_per_page;
+        int effective_items = getEffectiveItemsPerPage();
+        return current_page * effective_items;
     }
     
     int getPageEnd() const {
-        return std::min(getPageStart() + items_per_page, total_items);
+        int effective_items = getEffectiveItemsPerPage();
+        return std::min(getPageStart() + effective_items, total_items);
     }
     
     void nextPage() {
