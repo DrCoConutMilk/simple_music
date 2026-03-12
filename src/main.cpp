@@ -62,22 +62,33 @@ void renderPlaying() {
                  song_info.title.c_str(), song_info.artist.c_str());
 
         // 歌词显示
-        int lyricIdx = -1;
-        for (int i = 0; i < (int)player_song.lyrics.size(); ++i) {
-            if (elapsed >= player_song.lyrics[i].timestamp)
-                lyricIdx = i;
-            else
-                break;
-        }
-        for (int offset = -1; offset <= 1; ++offset) {
-            int idx = lyricIdx + offset;
-            if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
-                if (offset == 0)
-                    attron(COLOR_PAIR(1) | A_BOLD);
-                mvprintw(8 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", 
-                        (offset == 0 ? ">> " : ""), player_song.lyrics[idx].text.c_str());
-                if (offset == 0)
-                    attroff(COLOR_PAIR(1) | A_BOLD);
+        if (player_song.lyrics.empty()) {
+            // 只有当歌曲播放时间超过0.1秒且仍然没有歌词时，才显示"未找到歌词"
+            // 这样可以避免在歌词加载的瞬间显示提示
+            if (elapsed > 0.1) {
+                attron(COLOR_PAIR(2) | A_DIM);  // 使用白色+暗淡效果=灰色
+                mvprintw(8, 4, "未找到歌词");
+                attroff(COLOR_PAIR(2) | A_DIM);
+            }
+            // 如果elapsed <= 0.1，不显示任何内容，给歌词加载留出时间
+        } else {
+            int lyricIdx = -1;
+            for (int i = 0; i < (int)player_song.lyrics.size(); ++i) {
+                if (elapsed >= player_song.lyrics[i].timestamp)
+                    lyricIdx = i;
+                else
+                    break;
+            }
+            for (int offset = -1; offset <= 1; ++offset) {
+                int idx = lyricIdx + offset;
+                if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
+                    if (offset == 0)
+                        attron(COLOR_PAIR(1) | A_BOLD);
+                    mvprintw(8 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", 
+                            (offset == 0 ? ">> " : ""), player_song.lyrics[idx].text.c_str());
+                    if (offset == 0)
+                        attroff(COLOR_PAIR(1) | A_BOLD);
+                }
             }
         }
 
@@ -986,7 +997,8 @@ int main() {
     curs_set(0);
     start_color();
     use_default_colors();
-    init_pair(1, COLOR_CYAN, -1);
+    init_pair(1, COLOR_CYAN, -1);      // 青色：当前歌词高亮
+    init_pair(2, COLOR_WHITE, -1);     // 白色：可用于灰色效果（配合A_DIM）
 
     // 初始化页面菜单
     main_menu_page.items_per_page = 10;
