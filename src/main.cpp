@@ -391,6 +391,10 @@ void handlePlayingInput(int ch) {
         ctrl.nextSong();
     } else if (ch == KEY_LEFT) {
         ctrl.prevSong();
+    } else if (ch == ']' || ch == '}') {
+        ctrl.seekForward();
+    } else if (ch == '[' || ch == '{') {
+        ctrl.seekBackward();
     } else if (ch == 'a' || ch == 'A') {
         if (!ctrl.getCurrentSongPath().empty()) {
             ctrl.state = AppState::ADD_TO_PLAYLIST;

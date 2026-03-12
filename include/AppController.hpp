@@ -48,6 +48,8 @@ public:
     void togglePause();
     void playAtIndex(int index);
     void togglePlayMode();
+    void seekForward();
+    void seekBackward();
 
     // 歌单管理
     void createPlaylist(const std::string& name);

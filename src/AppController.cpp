@@ -140,6 +140,14 @@ void AppController::prevSong() {
 
 void AppController::togglePause() { player.isPaused() ? player.resume() : player.pause(); }
 
+void AppController::seekForward() {
+    player.seekForward();
+}
+
+void AppController::seekBackward() {
+    player.seekBackward();
+}
+
 void AppController::playAtIndex(int index) { 
     std::lock_guard<std::mutex> l(dataMutex); 
     currentSongIndex = index; 

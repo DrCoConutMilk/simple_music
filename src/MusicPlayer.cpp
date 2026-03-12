@@ -128,3 +128,84 @@ void MusicPlayer::parseLyrics(const std::string& path) {
     std::sort(currentSong.lyrics.begin(), currentSong.lyrics.end(), 
               [](const LyricLine& a, const LyricLine& b) { return a.timestamp < b.timestamp; });
 }
+
+bool MusicPlayer::seekForward(double seconds) {
+    if (!music) return false;
+    
+    // 频率限制：每0.25秒最多1次快进快退
+    Uint32 currentTime = SDL_GetTicks();
+    if (currentTime - lastSeekTime < 250) { // 0.25秒内
+        return false; // 超过频率限制
+    }
+    
+    // 更新上次操作时间
+    lastSeekTime = currentTime;
+    
+    double currentPos = getElapsedSeconds();
+    double newPos = currentPos + seconds;
+    
+    // 确保不超过歌曲总时长
+    if (newPos > currentSong.duration) {
+        newPos = currentSong.duration;
+    }
+    
+    return seekTo(newPos);
+}
+
+bool MusicPlayer::seekBackward(double seconds) {
+    if (!music) return false;
+    
+    // 频率限制：每0.25秒最多1次快进快退
+    Uint32 currentTime = SDL_GetTicks();
+    if (currentTime - lastSeekTime < 250) { // 0.25秒内
+        return false; // 超过频率限制
+    }
+    
+    // 更新上次操作时间
+    lastSeekTime = currentTime;
+    
+    double currentPos = getElapsedSeconds();
+    double newPos = currentPos - seconds;
+    
+    // 确保不小于0
+    if (newPos < 0) {
+        newPos = 0;
+    }
+    
+    return seekTo(newPos);
+}
+
+bool MusicPlayer::seekTo(double position) {
+    if (!music) return false;
+    
+    // 确保位置在有效范围内
+    if (position < 0 || position > currentSong.duration) {
+        return false;
+    }
+    
+    // 保存当前播放状态
+    bool wasPlaying = isPlaying() && !isPaused();
+    bool wasPaused = isPaused();
+    
+    // 停止当前播放
+    Mix_HaltMusic();
+    
+    // 从指定位置开始播放
+    int result = Mix_FadeInMusicPos(music, 1, 0, position);
+    
+    if (result == 0) { // 成功
+        // 重新计算开始时间
+        startTicks = SDL_GetTicks() - static_cast<Uint32>(position * 1000);
+        pauseTotalTicks = 0;
+        
+        // 恢复之前的播放状态
+        if (wasPaused) {
+            Mix_PauseMusic();
+            pauseStartTicks = SDL_GetTicks();
+        }
+        
+        return true;
+    }
+    
+    return false;
+}

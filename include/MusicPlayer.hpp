@@ -30,6 +30,11 @@ public:
     void pause();
     void resume();
     void stop();
+    
+    // 快进快退接口
+    bool seekForward(double seconds = 5.0);
+    bool seekBackward(double seconds = 5.0);
+    bool seekTo(double position);
 
     // 状态查询接口
     bool isPaused() const;
@@ -51,6 +56,9 @@ private:
     Uint32 startTicks = 0;
     Uint32 pauseTotalTicks = 0;
     Uint32 pauseStartTicks = 0;
+    
+    // 快进快退频率限制（每0.25秒最多1次）
+    Uint32 lastSeekTime = 0;
 };
 
 #endif
