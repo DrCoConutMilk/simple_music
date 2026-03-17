@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Simple Music Player 构建脚本
-# 版本：v1.1.0
+# 版本：v1.1.2
 
 set -e  # 遇到错误时退出
 
 echo "=== Simple Music Player 构建脚本 ==="
-echo "版本: v1.1.0"
+echo "版本: v1.1.2"
 echo ""
 
 # 检查是否已经存在 build 目录
@@ -31,7 +31,7 @@ if [ -d "build" ]; then
 fi
 
 echo ""
-echo "开始构建 Simple Music Player v1.1.0..."
+echo "开始构建 Simple Music Player v1.1.2..."
 echo ""
 
 # 创建构建目录
@@ -56,9 +56,9 @@ echo "=== 构建完成 ==="
 echo ""
 echo "生成的文件："
 echo "1. 可执行文件: build/smp"
-echo "2. DEB安装包: build/simple-music-player-1.1.0-Linux.deb"
+echo "2. DEB安装包: build/simple-music-player-1.1.2-Linux.deb"
 echo ""
 echo "使用方法："
 echo "1. 运行程序: ./build/smp"
-echo "2. 安装DEB包: sudo dpkg -i build/simple-music-player-1.1.0-Linux.deb"
+echo "2. 安装DEB包: sudo dpkg -i build/simple-music-player-1.1.2-Linux.deb"
 echo ""

@@ -10,6 +10,44 @@
 
 namespace fs = std::filesystem;
 
+// 辅助函数：将长歌词分割为多行
+std::vector<std::string> splitLyricLines(const std::string& lyric, int max_width) {
+    std::vector<std::string> lines;
+    if (lyric.empty()) return lines;
+    
+    std::string remaining = lyric;
+    while (!remaining.empty()) {
+        if ((int)remaining.length() <= max_width) {
+            lines.push_back(remaining);
+            break;
+        }
+        
+        // 尝试在空格处分割
+        int split_pos = max_width;
+        for (int i = max_width; i >= 0; --i) {
+            if (i < (int)remaining.length() && remaining[i] == ' ') {
+                split_pos = i;
+                break;
+            }
+        }
+        
+        // 如果没有找到空格，就在max_width处强制分割
+        if (split_pos == max_width) {
+            split_pos = max_width;
+        }
+        
+        lines.push_back(remaining.substr(0, split_pos));
+        remaining = remaining.substr(split_pos);
+        
+        // 移除开头的空格
+        while (!remaining.empty() && remaining[0] == ' ') {
+            remaining = remaining.substr(1);
+        }
+    }
+    
+    return lines;
+}
+
 // --- 全局变量 ---
 AppController ctrl;
 PageMenu main_menu_page;
@@ -92,15 +130,75 @@ void renderPlaying() {
                 else
                     break;
             }
+            
+            // 计算最大显示宽度（考虑屏幕宽度和前缀）
+            int max_width = COLS - 10; // 留出边距
+            
+            // 显示三句歌词：上一句、当前句、下一句
+            // 动态计算起始行，确保歌词显示在屏幕中央区域
+            int max_lyric_lines = LINES - 12; // 留出标题、进度条等空间
+            int start_y = 6; // 从第6行开始显示歌词
+            
+            // 先计算三句歌词总共需要多少行
+            int total_lines_needed = 0;
             for (int offset = -1; offset <= 1; ++offset) {
                 int idx = lyricIdx + offset;
                 if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
-                    if (offset == 0)
-                        attron(COLOR_PAIR(1) | A_BOLD);
-                    mvprintw(8 + offset * 2, 4 + (offset == 0 ? 0 : 3), "%s%s", 
-                            (offset == 0 ? ">> " : ""), player_song.lyrics[idx].text.c_str());
-                    if (offset == 0)
-                        attroff(COLOR_PAIR(1) | A_BOLD);
+                    std::string lyric_text = player_song.lyrics[idx].text;
+                    std::vector<std::string> lines = splitLyricLines(lyric_text, max_width);
+                    total_lines_needed += lines.size() + 1; // 歌词行数 + 间隔行
+                } else {
+                    total_lines_needed += 1; // 没有歌词时也留出间隔行
+                }
+            }
+            
+            // 如果总行数超过可用空间，调整起始位置
+            if (total_lines_needed > max_lyric_lines) {
+                // 简单处理：从顶部开始显示，能显示多少就显示多少
+                start_y = 6;
+            }
+            
+            // 实际显示歌词
+            for (int offset = -1; offset <= 1; ++offset) {
+                int idx = lyricIdx + offset;
+                if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
+                    std::string lyric_text = player_song.lyrics[idx].text;
+                    std::vector<std::string> lines = splitLyricLines(lyric_text, max_width);
+                    
+                    // 计算当前句歌词的显示行数
+                    int line_count = lines.size();
+                    
+                    // 显示当前句歌词的所有行
+                    for (int line_idx = 0; line_idx < line_count; ++line_idx) {
+                        int y_pos = start_y + line_idx;
+                        
+                        // 确保不会超出屏幕
+                        if (y_pos >= LINES - 4) break;
+                        
+                        if (offset == 0) {
+                            // 当前歌词：高亮显示
+                            attron(COLOR_PAIR(1) | A_BOLD);
+                            if (line_idx == 0) {
+                                // 第一行显示前缀
+                                mvprintw(y_pos, 4, ">> %s", lines[line_idx].c_str());
+                            } else {
+                                // 后续行缩进对齐
+                                mvprintw(y_pos, 7, "%s", lines[line_idx].c_str());
+                            }
+                            attroff(COLOR_PAIR(1) | A_BOLD);
+                        } else {
+                            // 上一句或下一句歌词：普通显示
+                            mvprintw(y_pos, 7, "%s", lines[line_idx].c_str());
+                        }
+                    }
+                    
+                    // 更新起始行位置，为下一句歌词留出空间
+                    // 每句歌词之间间隔一行
+                    start_y += line_count + 1;
+                } else {
+                    // 如果没有这句歌词（比如第一句没有上一句），仍然留出空间
+                    // 这样可以保持歌词显示区域的稳定性
+                    start_y += 1;
                 }
             }
         }
