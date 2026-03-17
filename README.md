@@ -2,7 +2,7 @@
 
 一个基于 C++ 开发的轻量级终端音乐播放器, 支持歌词解析与显示
 
-<img width="433" height="339" alt="image" src="https://github.com/user-attachments/assets/1bfa244c-eae3-4fd2-b360-31d2316d6e4d" />
+<img width="406" height="314" alt="image" src="https://github.com/user-attachments/assets/a3848a21-aec8-48f9-9237-c5a5da1d28e6" />
 
 
 
