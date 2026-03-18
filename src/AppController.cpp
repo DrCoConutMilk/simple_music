@@ -445,6 +445,7 @@ void AppController::saveConfig() {
     j["play_mode"] = mode_str;
     j["current_playlist_index"] = currentPlaylistIndex;
     j["current_song_index"] = currentSongIndex;
+    j["volume"] = player.getVolume();
     
     // 只保存歌单的元信息（名称、索引映射）
     json playlists_meta = json::array();
@@ -479,6 +480,13 @@ void AppController::loadConfig() {
         }
         currentPlaylistIndex = j.value("current_playlist_index", -1);
         currentSongIndex = j.value("current_song_index", 0);
+        
+        // 加载音量设置（默认80%）
+        int saved_volume = j.value("volume", 80);
+        // 确保音量在有效范围内
+        if (saved_volume < 0) saved_volume = 0;
+        if (saved_volume > 100) saved_volume = 100;
+        player.setVolume(saved_volume);
         
         // 注意：这里不加载歌单内容，只加载元信息
         // 歌单内容在 loadPlaylists() 中单独加载
@@ -630,11 +638,13 @@ int AppController::findSongIndexByPath(const std::string& path) const {
 void AppController::increaseVolume() {
     std::lock_guard<std::mutex> lock(dataMutex);
     player.increaseVolume();
+    saveConfig(); // 保存配置，记住音量设置
 }
 
 void AppController::decreaseVolume() {
     std::lock_guard<std::mutex> lock(dataMutex);
     player.decreaseVolume();
+    saveConfig(); // 保存配置，记住音量设置
 }
 
 int AppController::getVolume() const {

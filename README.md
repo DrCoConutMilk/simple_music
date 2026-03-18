@@ -100,9 +100,10 @@ bash ./build.sh
 ### 配置文件格式
 ```json
 {
-  "play_mode": "sequential",  // 或 "shuffle"
+  "play_mode": "sequential",  // 或 "shuffle", "single"
   "current_playlist_index": 0,
   "current_song_index": 0,
+  "volume": 80,               // 音量设置，范围0-100
   "playlists_meta": [
     {
       "index": 0,
