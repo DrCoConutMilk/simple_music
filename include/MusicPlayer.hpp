@@ -42,6 +42,12 @@ public:
     double getElapsedSeconds() const;
     const SongInfo& getCurrentSong() const { return currentSong; }
     std::string getCurrentFilePath() const { return currentFilePath; }
+    
+    // 音量控制接口
+    void setVolume(int volume); // 0-100
+    int getVolume() const { return currentVolume; }
+    void increaseVolume();      // 增加5%
+    void decreaseVolume();      // 减少5%
 
 private:
     void parseLyrics(const std::string& path);
@@ -59,6 +65,9 @@ private:
     
     // 快进快退频率限制（每0.25秒最多1次）
     Uint32 lastSeekTime = 0;
+    
+    // 音量控制
+    int currentVolume = 80; // 默认音量80%
 };
 
 #endif

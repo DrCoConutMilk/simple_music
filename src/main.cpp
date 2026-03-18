@@ -94,7 +94,10 @@ void renderPlaying() {
         playlist_name = ctrl.playlists[ctrl.currentPlaylistIndex]->name;
     }
     
-    mvprintw(1, 2, "歌单: %s | 模式: %s", playlist_name.c_str(), mode_name.c_str());
+    // 获取当前音量（使用不锁定的版本，因为已经在锁中）
+    int volume = ctrl.getVolumeUnlocked();
+    
+    mvprintw(1, 2, "歌单: %s | 模式: %s | 音量: %d%%", playlist_name.c_str(), mode_name.c_str(), volume);
 
     if (ctrl.currentPlaylistIndex < 0 || ctrl.currentPlaylistIndex >= (int)ctrl.playlists.size() || 
         ctrl.playlists[ctrl.currentPlaylistIndex]->empty()) {
@@ -108,7 +111,7 @@ void renderPlaying() {
         // 获取歌曲基本信息（从AppController获取，考虑乱序模式）
         auto& song_info = ctrl.getCurrentSong();
 
-        mvprintw(3, 2, "当前播放：[%d/%d] %s - %s",
+        mvprintw(3, 2, "[%d/%d] %s - %s",
                  ctrl.currentSongIndex + 1, ctrl.getCurrentPlaylistSize(),
                  song_info.title.c_str(), song_info.artist.c_str());
 
@@ -501,6 +504,10 @@ void handlePlayingInput(int ch) {
         }
     } else if (ch == 'h' || ch == 'H') {
         enterHelp();
+    } else if (ch == '-' || ch == '_') { // -键（减号）
+        ctrl.decreaseVolume();
+    } else if (ch == '=' || ch == '+') { // =键（未按shift）或+键（按shift）
+        ctrl.increaseVolume();
     }
 }
 

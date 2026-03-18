@@ -625,3 +625,24 @@ int AppController::findSongIndexByPath(const std::string& path) const {
     }
     return -1;
 }
+
+// 音量控制方法实现
+void AppController::increaseVolume() {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    player.increaseVolume();
+}
+
+void AppController::decreaseVolume() {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    player.decreaseVolume();
+}
+
+int AppController::getVolume() const {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    return player.getVolume();
+}
+
+int AppController::getVolumeUnlocked() const {
+    // 假设调用者已经持有dataMutex锁
+    return player.getVolume();
+}

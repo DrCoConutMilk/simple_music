@@ -50,6 +50,12 @@ public:
     void togglePlayMode();
     void seekForward();
     void seekBackward();
+    
+    // 音量控制接口
+    void increaseVolume();
+    void decreaseVolume();
+    int getVolume() const;
+    int getVolumeUnlocked() const; // 不锁定的版本，用于已经在锁中的情况
 
     // 歌单管理
     void createPlaylist(const std::string& name);
@@ -122,7 +128,7 @@ private:
     std::atomic<bool> needLoad{false};
     std::atomic<bool> isStartingUp{true}; // 是否为启动状态
     std::thread playerThread;
-    std::mutex dataMutex;
+    mutable std::mutex dataMutex; // 使用mutable以便在const成员函数中锁定
 };
 
 #endif

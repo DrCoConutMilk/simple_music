@@ -8,8 +8,19 @@
 #include <iostream>
 
 MusicPlayer::MusicPlayer() {
-    if (SDL_Init(SDL_INIT_AUDIO) < 0) return;
-    Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048);
+    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+        // SDL初始化失败，但仍然设置默认音量
+        currentVolume = 80;
+        return;
+    }
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        // Mixer初始化失败
+        currentVolume = 80;
+        return;
+    }
+    
+    // 设置初始音量
+    setVolume(currentVolume);
 }
 
 MusicPlayer::~MusicPlayer() {
@@ -208,4 +219,30 @@ bool MusicPlayer::seekTo(double position) {
     }
     
     return false;
+}
+
+// 音量控制方法实现
+void MusicPlayer::setVolume(int volume) {
+    // 确保音量在0-100范围内
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    
+    currentVolume = volume;
+    
+    // 只有在SDL_mixer初始化成功时才设置音量
+    // SDL_mixer的音量范围是0-128，所以需要转换
+    int sdlVolume = (volume * 128) / 100;
+    Mix_VolumeMusic(sdlVolume);
+}
+
+void MusicPlayer::increaseVolume() {
+    // 每次增加5%，共20档
+    int newVolume = currentVolume + 5;
+    setVolume(newVolume);
+}
+
+void MusicPlayer::decreaseVolume() {
+    // 每次减少5%，共20档
+    int newVolume = currentVolume - 5;
+    setVolume(newVolume);
 }
