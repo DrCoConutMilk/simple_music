@@ -5,51 +5,140 @@
 #include <vector>
 #include <filesystem>
 #include <algorithm>
+#include <cwchar>
+#include <climits>
 #include "AppController.hpp"
 #include "UIHelpers.hpp"
+#include "KittyCover.hpp"
 
 namespace fs = std::filesystem;
 
-// 辅助函数：将长歌词分割为多行
-std::vector<std::string> splitLyricLines(const std::string& lyric, int max_width) {
-    std::vector<std::string> lines;
-    if (lyric.empty()) return lines;
-    
-    std::string remaining = lyric;
-    while (!remaining.empty()) {
-        if ((int)remaining.length() <= max_width) {
-            lines.push_back(remaining);
-            break;
+// UTF-8 与终端显示列宽辅助函数
+std::wstring toWide(const std::string& text) {
+    std::mbstate_t state{};
+    const char* source = text.c_str();
+    const size_t length = std::mbsrtowcs(nullptr, &source, 0, &state);
+    if (length == static_cast<size_t>(-1)) return L"";
+
+    std::vector<wchar_t> buffer(length + 1);
+    state = std::mbstate_t{};
+    source = text.c_str();
+    std::mbsrtowcs(buffer.data(), &source, buffer.size(), &state);
+    return std::wstring(buffer.data(), length);
+}
+
+std::string fromWide(const std::wstring& text) {
+    std::string result;
+    std::mbstate_t state{};
+    char buffer[MB_LEN_MAX];
+    for (wchar_t c : text) {
+        const size_t bytes = std::wcrtomb(buffer, c, &state);
+        if (bytes == static_cast<size_t>(-1)) {
+            state = std::mbstate_t{};
+            continue;
         }
-        
-        // 尝试在空格处分割
-        int split_pos = max_width;
-        for (int i = max_width; i >= 0; --i) {
-            if (i < (int)remaining.length() && remaining[i] == ' ') {
-                split_pos = i;
-                break;
-            }
-        }
-        
-        // 如果没有找到空格，就在max_width处强制分割
-        if (split_pos == max_width) {
-            split_pos = max_width;
-        }
-        
-        lines.push_back(remaining.substr(0, split_pos));
-        remaining = remaining.substr(split_pos);
-        
-        // 移除开头的空格
-        while (!remaining.empty() && remaining[0] == ' ') {
-            remaining = remaining.substr(1);
-        }
+        result.append(buffer, bytes);
     }
-    
+    return result;
+}
+
+int terminalWidth(wchar_t c) {
+    const int width = ::wcwidth(c);
+    return width < 0 ? 1 : width;
+}
+
+int displayWidth(const std::wstring& text) {
+    int width = 0;
+    for (wchar_t c : text) width += terminalWidth(c);
+    return width;
+}
+
+std::wstring takeColumns(const std::wstring& text, size_t start, int max_columns) {
+    std::wstring result;
+    int columns = 0;
+    for (size_t i = start; i < text.size(); ++i) {
+        const int width = terminalWidth(text[i]);
+        if (columns + width > max_columns) break;
+        result += text[i];
+        columns += width;
+    }
+    return result;
+}
+
+std::string fitDisplayText(const std::string& text, int max_columns) {
+    if (max_columns <= 0) return "";
+    const std::wstring wide = toWide(text);
+    if (wide.empty() && !text.empty())
+        return text.substr(0, std::min(text.size(), static_cast<size_t>(max_columns)));
+    if (displayWidth(wide) <= max_columns) return text;
+
+    const std::wstring suffix = L"...";
+    return fromWide(takeColumns(wide, 0, std::max(0, max_columns - 3)) + suffix);
+}
+
+std::string marqueeText(const std::string& text, int max_columns, long long tick, size_t slot) {
+    const std::wstring wide = toWide(text);
+    if (displayWidth(wide) <= max_columns) return text;
+
+    struct MarqueeState {
+        std::string text;
+        long long changed_at = 0;
+    };
+    static std::vector<MarqueeState> states(2);
+    if (slot >= states.size()) states.resize(slot + 1);
+    auto& state = states[slot];
+    if (text != state.text) {
+        state.text = text;
+        state.changed_at = tick;
+    }
+
+    constexpr long long pause_ticks = 6; // 6 × 250ms
+    const long long elapsed_ticks = std::max(0LL, tick - state.changed_at);
+    const size_t offset = elapsed_ticks <= pause_ticks
+        ? 0
+        : static_cast<size_t>(elapsed_ticks - pause_ticks);
+    const std::wstring loop = wide + L"     " + wide;
+    const size_t cycle = wide.size() + 5;
+    return fromWide(takeColumns(loop, cycle == 0 ? 0 : offset % cycle, max_columns));
+}
+
+std::vector<std::string> wrapDisplayText(const std::string& text, int max_columns) {
+    std::vector<std::string> lines;
+    const std::wstring wide = toWide(text);
+    if (wide.empty()) return lines;
+
+    size_t start = 0;
+    while (start < wide.size()) {
+        std::wstring line;
+        int columns = 0;
+        size_t end = start;
+        size_t last_space = std::wstring::npos;
+        for (; end < wide.size(); ++end) {
+            const int width = terminalWidth(wide[end]);
+            if (columns + width > max_columns) break;
+            line += wide[end];
+            columns += width;
+            if (wide[end] == L' ') last_space = end;
+        }
+        if (end < wide.size() && last_space != std::wstring::npos && last_space >= start) {
+            end = last_space + 1;
+            line = wide.substr(start, last_space - start);
+        }
+        if (end == start) {
+            line = wide.substr(start, 1);
+            ++end;
+        }
+        while (!line.empty() && line.back() == L' ') line.pop_back();
+        lines.push_back(fromWide(line));
+        start = end;
+        while (start < wide.size() && wide[start] == L' ') ++start;
+    }
     return lines;
 }
 
 // --- 全局变量 ---
 AppController ctrl;
+KittyCover kitty_cover;
 PageMenu main_menu_page;
 PageMenu playlist_manager_page;
 PageMenu playlist_menu_page;    // 歌单功能菜单
@@ -75,144 +164,106 @@ void enterHelp() {
 // --- 渲染函数 ---
 void renderPlaying() {
     auto& player = ctrl.getPlayer();
+    const bool cover_area = kitty_cover.isSupported() && COLS >= 70 && LINES >= 24;
+    const int content_x = cover_area ? KittyCover::column + KittyCover::width + 3 : 2;
+    const int content_width = std::max(10, COLS - content_x - 2);
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const long long title_tick = std::chrono::duration_cast<std::chrono::milliseconds>(now).count() / 250;
+
     std::string mode_name;
     switch (ctrl.mode) {
-        case PlayMode::SEQUENTIAL:
-            mode_name = "顺序";
-            break;
-        case PlayMode::SHUFFLE:
-            mode_name = "乱序";
-            break;
-        case PlayMode::SINGLE:
-            mode_name = "单曲循环";
-            break;
+        case PlayMode::SEQUENTIAL: mode_name = "顺序"; break;
+        case PlayMode::SHUFFLE: mode_name = "乱序"; break;
+        case PlayMode::SINGLE: mode_name = "单曲循环"; break;
     }
-    
-    // 显示当前歌单信息
+
     std::string playlist_name = "无歌单";
-    if (ctrl.currentPlaylistIndex >= 0 && ctrl.currentPlaylistIndex < (int)ctrl.playlists.size()) {
+    if (ctrl.currentPlaylistIndex >= 0 && ctrl.currentPlaylistIndex < static_cast<int>(ctrl.playlists.size()))
         playlist_name = ctrl.playlists[ctrl.currentPlaylistIndex]->name;
-    }
-    
-    // 获取当前音量（使用不锁定的版本，因为已经在锁中）
-    int volume = ctrl.getVolumeUnlocked();
-    
-    mvprintw(1, 2, "歌单: %s | 模式: %s | 音量: %d%%", playlist_name.c_str(), mode_name.c_str(), volume);
 
-    if (ctrl.currentPlaylistIndex < 0 || ctrl.currentPlaylistIndex >= (int)ctrl.playlists.size() || 
+    const std::string status = fitDisplayText(
+        "歌单: " + playlist_name + " | 模式: " + mode_name + " | 音量: " +
+        std::to_string(ctrl.getVolumeUnlocked()) + "%", COLS - 4);
+    mvprintw(0, 2, "%s", status.c_str());
+
+    if (ctrl.currentPlaylistIndex < 0 || ctrl.currentPlaylistIndex >= static_cast<int>(ctrl.playlists.size()) ||
         ctrl.playlists[ctrl.currentPlaylistIndex]->empty()) {
-        mvprintw(LINES / 2, (COLS - 20) / 2, "--- 暂无歌曲 ---");
-        mvprintw(LINES / 2 + 1, (COLS - 30) / 2, "请按 [M] 进入菜单选择歌单");
+        mvprintw(LINES / 2, std::max(0, (COLS - 20) / 2), "--- 暂无歌曲 ---");
+        mvprintw(LINES / 2 + 1, std::max(0, (COLS - 30) / 2), "请按 [M] 进入菜单选择歌单");
     } else {
-        // 获取当前播放的歌曲信息（从MusicPlayer获取，包含时长和歌词）
-        auto& player_song = player.getCurrentSong();
-        double elapsed = player.getElapsedSeconds();
-        
-        // 获取歌曲基本信息（从AppController获取，考虑乱序模式）
-        auto& song_info = ctrl.getCurrentSong();
+        const auto& player_song = player.getCurrentSong();
+        const double elapsed = player.getElapsedSeconds();
+        const auto& song_info = ctrl.getCurrentSong();
 
-        mvprintw(3, 2, "[%d/%d] %s - %s",
-                 ctrl.currentSongIndex + 1, ctrl.getCurrentPlaylistSize(),
-                 song_info.title.c_str(), song_info.artist.c_str());
+        const std::string song_number = "[" + std::to_string(ctrl.currentSongIndex + 1) + "/" +
+                                        std::to_string(ctrl.getCurrentPlaylistSize()) + "] ";
+        const std::string title = marqueeText(song_number + song_info.title,
+                                               content_width, title_tick, 0);
+        const std::string artist_album = marqueeText(song_info.artist + " · " + song_info.album,
+                                                      content_width, title_tick, 1);
+        mvprintw(2, content_x, "%s", title.c_str());
+        mvprintw(4, content_x, "%s", artist_album.c_str());
 
-        // 歌词显示
+        const int lyric_prefix_x = content_x;
+        const int lyric_text_x = content_x + 3;
+        const int lyric_width = std::max(4, content_width - 3);
+        const int lyric_start_y = 6;
+        constexpr int lyric_rows = 2;
+        constexpr int lyric_gap = 1;
+
         if (player_song.lyrics.empty()) {
-            // 只有当歌曲播放时间超过0.1秒且仍然没有歌词时，才显示"未找到歌词"
-            // 这样可以避免在歌词加载的瞬间显示提示
             if (elapsed > 0.1) {
-                attron(COLOR_PAIR(2) | A_DIM);  // 使用白色+暗淡效果=灰色
-                mvprintw(8, 4, "未找到歌词");
+                attron(COLOR_PAIR(2) | A_DIM);
+                mvprintw(lyric_start_y, lyric_text_x, "未找到歌词");
                 attroff(COLOR_PAIR(2) | A_DIM);
             }
-            // 如果elapsed <= 0.1，不显示任何内容，给歌词加载留出时间
         } else {
-            int lyricIdx = -1;
-            for (int i = 0; i < (int)player_song.lyrics.size(); ++i) {
-                if (elapsed >= player_song.lyrics[i].timestamp)
-                    lyricIdx = i;
-                else
-                    break;
+            int lyric_idx = -1;
+            for (int i = 0; i < static_cast<int>(player_song.lyrics.size()); ++i) {
+                if (elapsed >= player_song.lyrics[i].timestamp) lyric_idx = i;
+                else break;
             }
-            
-            // 计算最大显示宽度（考虑屏幕宽度和前缀）
-            int max_width = COLS - 10; // 留出边距
-            
-            // 显示三句歌词：上一句、当前句、下一句
-            // 动态计算起始行，确保歌词显示在屏幕中央区域
-            int max_lyric_lines = LINES - 12; // 留出标题、进度条等空间
-            int start_y = 6; // 从第6行开始显示歌词
-            
-            // 先计算三句歌词总共需要多少行
-            int total_lines_needed = 0;
+
             for (int offset = -1; offset <= 1; ++offset) {
-                int idx = lyricIdx + offset;
-                if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
-                    std::string lyric_text = player_song.lyrics[idx].text;
-                    std::vector<std::string> lines = splitLyricLines(lyric_text, max_width);
-                    total_lines_needed += lines.size() + 1; // 歌词行数 + 间隔行
-                } else {
-                    total_lines_needed += 1; // 没有歌词时也留出间隔行
-                }
-            }
-            
-            // 如果总行数超过可用空间，调整起始位置
-            if (total_lines_needed > max_lyric_lines) {
-                // 简单处理：从顶部开始显示，能显示多少就显示多少
-                start_y = 6;
-            }
-            
-            // 实际显示歌词
-            for (int offset = -1; offset <= 1; ++offset) {
-                int idx = lyricIdx + offset;
-                if (idx >= 0 && idx < (int)player_song.lyrics.size()) {
-                    std::string lyric_text = player_song.lyrics[idx].text;
-                    std::vector<std::string> lines = splitLyricLines(lyric_text, max_width);
-                    
-                    // 计算当前句歌词的显示行数
-                    int line_count = lines.size();
-                    
-                    // 显示当前句歌词的所有行
-                    for (int line_idx = 0; line_idx < line_count; ++line_idx) {
-                        int y_pos = start_y + line_idx;
-                        
-                        // 确保不会超出屏幕
-                        if (y_pos >= LINES - 4) break;
-                        
-                        if (offset == 0) {
-                            // 当前歌词：高亮显示
-                            attron(COLOR_PAIR(1) | A_BOLD);
-                            if (line_idx == 0) {
-                                // 第一行显示前缀
-                                mvprintw(y_pos, 4, ">> %s", lines[line_idx].c_str());
-                            } else {
-                                // 后续行缩进对齐
-                                mvprintw(y_pos, 7, "%s", lines[line_idx].c_str());
-                            }
-                            attroff(COLOR_PAIR(1) | A_BOLD);
-                        } else {
-                            // 上一句或下一句歌词：普通显示
-                            mvprintw(y_pos, 7, "%s", lines[line_idx].c_str());
-                        }
+                const int idx = lyric_idx + offset;
+                if (idx < 0 || idx >= static_cast<int>(player_song.lyrics.size())) continue;
+
+                const int text_width = lyric_width;
+                const auto lines = wrapDisplayText(player_song.lyrics[idx].text, text_width);
+                if (lines.empty()) continue;
+
+                const size_t window_count = lines.size() > lyric_rows ? lines.size() - lyric_rows + 1 : 1;
+                const double current_lyric_time = lyric_idx >= 0
+                    ? player_song.lyrics[lyric_idx].timestamp : 0.0;
+                const double visible_seconds = std::max(0.0, elapsed - current_lyric_time);
+                const size_t scroll_tick = visible_seconds <= 1.5
+                    ? 0
+                    : static_cast<size_t>((visible_seconds - 1.5) / 1.2);
+                const size_t first_line = lines.size() > lyric_rows
+                    ? scroll_tick % (window_count + 1) : 0;
+                const size_t scroll_start = first_line == window_count ? 0 : first_line;
+                const int block_y = lyric_start_y + (offset + 1) * (lyric_rows + lyric_gap);
+
+                if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
+                for (int row = 0; row < lyric_rows; ++row) {
+                    const size_t line_index = scroll_start + static_cast<size_t>(row);
+                    if (line_index >= lines.size() || block_y + row >= LINES - 4) break;
+                    if (offset == 0 && row == 0) {
+                        mvprintw(block_y + row, lyric_prefix_x, ">>");
                     }
-                    
-                    // 更新起始行位置，为下一句歌词留出空间
-                    // 每句歌词之间间隔一行
-                    start_y += line_count + 1;
-                } else {
-                    // 如果没有这句歌词（比如第一句没有上一句），仍然留出空间
-                    // 这样可以保持歌词显示区域的稳定性
-                    start_y += 1;
+                    mvprintw(block_y + row, lyric_text_x, "%s", lines[line_index].c_str());
                 }
+                if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
             }
         }
 
-        // 进度条
-        int barWidth = std::max(10, COLS - 20);
-        int pos = (player_song.duration > 0) ? (int)(elapsed / player_song.duration * barWidth) : 0;
-        mvprintw(LINES - 2, 2, "%02d:%02d [", (int)elapsed / 60, (int)elapsed % 60);
-        for (int i = 0; i < barWidth; ++i)
-            addch(i < pos ? '=' : (i == pos ? '>' : ' '));
-        printw("] %02d:%02d", (int)player_song.duration / 60, (int)player_song.duration % 60);
+        const int bar_width = std::max(10, COLS - 20);
+        const int pos = player_song.duration > 0
+            ? static_cast<int>(elapsed / player_song.duration * bar_width) : 0;
+        mvprintw(LINES - 2, 2, "%02d:%02d [", static_cast<int>(elapsed) / 60,
+                 static_cast<int>(elapsed) % 60);
+        for (int i = 0; i < bar_width; ++i) addch(i < pos ? '=' : (i == pos ? '>' : ' '));
+        printw("] %02d:%02d", player_song.duration / 60, player_song.duration % 60);
     }
     mvprintw(LINES - 4, 2, "[H]帮助");
 }
@@ -1268,6 +1319,8 @@ int main() {
         }
 
         // 渲染界面
+        bool cover_visible = false;
+        std::string cover_song;
         erase();
         {
             std::lock_guard<std::mutex> lock(ctrl.getMutex());
@@ -1366,11 +1419,15 @@ int main() {
                 default:
                     break;
             }
+            cover_visible = ctrl.state == AppState::PLAYING;
+            if (cover_visible) cover_song = ctrl.getCurrentSongPath();
         }
         refresh();
+        kitty_cover.update(cover_visible, cover_song, COLS, LINES);
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
 
+    kitty_cover.clear();
     endwin();
     return 0;
 }

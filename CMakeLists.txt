@@ -1,6 +1,6 @@
 # 1. 基础设置
 cmake_minimum_required(VERSION 3.10)
-project(smp) # 项目名也改为 smp
+project(smp VERSION 1.2.0) # 项目名也改为 smp
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,7 +53,7 @@ target_link_libraries(smp
 install(TARGETS smp DESTINATION bin)
 
 set(CPACK_PACKAGE_NAME "simple-music-player")
-set(CPACK_PACKAGE_VERSION "1.1.3")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_CONTACT "drcoconutmilk@gmail.com")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "DrCoConutMilk")
 set(CPACK_GENERATOR "DEB")
