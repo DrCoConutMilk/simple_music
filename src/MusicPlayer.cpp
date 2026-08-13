@@ -29,25 +29,27 @@ MusicPlayer::~MusicPlayer() {
     SDL_Quit();
 }
 
-bool MusicPlayer::load(const std::string& path) {
+SongInfo MusicPlayer::readSongInfo(const std::string& path) {
+    SongInfo song;
+    TagLib::FileRef file(path.c_str());
+    if (!file.isNull() && file.tag()) {
+        song.title = file.tag()->title().to8Bit(true);
+        song.artist = file.tag()->artist().to8Bit(true);
+        if (file.audioProperties()) {
+            song.duration = file.audioProperties()->lengthInSeconds();
+        }
+    }
+    parseLyrics(path, song);
+    return song;
+}
+
+bool MusicPlayer::load(const std::string& path, const SongInfo* prepared_info) {
     stop(); // 加载新歌前先停止并释放旧资源
     music = Mix_LoadMUS(path.c_str());
     if (!music) return false;
 
     currentFilePath = path;
-    
-    // 1. 解析元数据
-    TagLib::FileRef f(path.c_str());
-    if (!f.isNull() && f.tag()) {
-        currentSong.title = f.tag()->title().to8Bit(true);
-        currentSong.artist = f.tag()->artist().to8Bit(true);
-        if (f.audioProperties()) {
-            currentSong.duration = f.audioProperties()->lengthInSeconds();
-        }
-    }
-    
-    // 2. 解析歌词
-    parseLyrics(path);
+    currentSong = prepared_info ? *prepared_info : readSongInfo(path);
     return true;
 }
 
@@ -119,8 +121,8 @@ double MusicPlayer::parseTime(const std::string& t) {
     } catch(...) { return -1; }
 }
 
-void MusicPlayer::parseLyrics(const std::string& path) {
-    currentSong.lyrics.clear();
+void MusicPlayer::parseLyrics(const std::string& path, SongInfo& song) {
+    song.lyrics.clear();
     std::string raw = fetchEmbeddedLyrics(path);
     if (raw.empty()) return;
 
@@ -131,12 +133,12 @@ void MusicPlayer::parseLyrics(const std::string& path) {
         if(closePos != std::string::npos && line.size() > closePos + 1) {
             double ts = parseTime(line.substr(0, closePos + 1));
             if (ts >= 0) {
-                currentSong.lyrics.push_back({ts, line.substr(closePos + 1)});
+                song.lyrics.push_back({ts, line.substr(closePos + 1)});
             }
         }
     }
     // 排序确保 UI 逻辑正常
-    std::sort(currentSong.lyrics.begin(), currentSong.lyrics.end(), 
+    std::sort(song.lyrics.begin(), song.lyrics.end(),
               [](const LyricLine& a, const LyricLine& b) { return a.timestamp < b.timestamp; });
 }
 

@@ -76,9 +76,17 @@ std::string shellQuote(const std::string& value) {
 KittyCover::KittyCover() {
     supported = std::getenv("KITTY_WINDOW_ID") != nullptr ||
                 (std::getenv("TERM") && std::string(std::getenv("TERM")).find("kitty") != std::string::npos);
+    if (supported) loader_thread = std::thread(&KittyCover::loaderLoop, this);
 }
 
 KittyCover::~KittyCover() {
+    {
+        std::lock_guard<std::mutex> lock(loader_mutex);
+        loader_running = false;
+        ++request_generation;
+    }
+    loader_cv.notify_all();
+    if (loader_thread.joinable()) loader_thread.join();
     clear();
 }
 
@@ -88,8 +96,48 @@ void KittyCover::clear() {
     }
     displayed = false;
     displayed_song.clear();
+    displayed_png.clear();
     displayed_cols = 0;
     displayed_lines = 0;
+}
+
+void KittyCover::requestCover(const std::string& song_path) {
+    {
+        std::lock_guard<std::mutex> lock(loader_mutex);
+        if (requested_song == song_path) return;
+        requested_song = song_path;
+        ++request_generation;
+    }
+    loader_cv.notify_one();
+}
+
+void KittyCover::loaderLoop() {
+    unsigned long long handled_generation = 0;
+    while (true) {
+        std::string song_path;
+        unsigned long long generation = 0;
+        {
+            std::unique_lock<std::mutex> lock(loader_mutex);
+            loader_cv.wait(lock, [&] {
+                return !loader_running || request_generation != handled_generation;
+            });
+            if (!loader_running) break;
+            song_path = requested_song;
+            generation = request_generation;
+            handled_generation = generation;
+        }
+
+        std::vector<unsigned char> png;
+        const bool success = loadCover(song_path, png);
+        {
+            std::lock_guard<std::mutex> lock(loader_mutex);
+            if (generation != request_generation) continue;
+            completed_generation = generation;
+            completed_song = song_path;
+            completed_png = std::move(png);
+            completed_success = success;
+        }
+    }
 }
 
 void KittyCover::update(bool visible, const std::string& song_path, int terminal_cols, int terminal_lines) {
@@ -98,19 +146,40 @@ void KittyCover::update(bool visible, const std::string& song_path, int terminal
         clear();
         return;
     }
-    if (displayed_song == song_path && displayed_cols == terminal_cols &&
-        displayed_lines == terminal_lines) return;
 
-    clear();
-    std::vector<unsigned char> png;
-    if (!loadCover(song_path, png)) {
-        displayed_song = song_path;
-        displayed_cols = terminal_cols;
-        displayed_lines = terminal_lines;
+    if (displayed_song == song_path) {
+        if (displayed && (displayed_cols != terminal_cols || displayed_lines != terminal_lines)) {
+            // ncurses 重绘或终端尺寸变化可能覆盖图片，使用内存缓存快速重绘。
+            display(displayed_png);
+            displayed_cols = terminal_cols;
+            displayed_lines = terminal_lines;
+        }
         return;
     }
-    display(png);
-    displayed = true;
+
+    requestCover(song_path);
+
+    std::vector<unsigned char> ready_png;
+    bool ready = false;
+    bool success = false;
+    {
+        std::lock_guard<std::mutex> lock(loader_mutex);
+        ready = completed_song == song_path && completed_generation == request_generation;
+        if (ready) {
+            success = completed_success;
+            if (success) ready_png = completed_png;
+        }
+    }
+    if (!ready) return; // 保留旧封面，直到新封面准备完成。
+
+    if (success) {
+        // Kitty 以相同 image id 传输时直接覆盖旧图，不产生清空间隙。
+        display(ready_png);
+        displayed = true;
+        displayed_png = std::move(ready_png);
+    } else {
+        clear();
+    }
     displayed_song = song_path;
     displayed_cols = terminal_cols;
     displayed_lines = terminal_lines;
@@ -182,11 +251,16 @@ bool KittyCover::extractEmbeddedCover(const std::string& song_path,
 bool KittyCover::convertToPng(const std::vector<unsigned char>& data,
                               const std::string& mime_type,
                               std::vector<unsigned char>& png) {
-    if (isPng(data) || mime_type == "image/png") {
+    const bool png_input = isPng(data) || mime_type == "image/png";
+    // 小 PNG 可直接传输；大图先在后台缩放，避免 Base64 和终端 I/O 卡住 UI。
+    if (png_input && data.size() <= 256 * 1024) {
         png = data;
         return true;
     }
-    if (!commandExists("ffmpeg")) return false;
+    if (!commandExists("ffmpeg")) {
+        if (png_input) png = data;
+        return png_input;
+    }
 
     char input_template[] = "/tmp/smp-cover-in-XXXXXX";
     char output_template[] = "/tmp/smp-cover-out-XXXXXX";
@@ -213,7 +287,8 @@ bool KittyCover::convertToPng(const std::vector<unsigned char>& data,
     }
 
     const std::string command = "ffmpeg -loglevel error -y -i " + shellQuote(input_template) +
-                                " -frames:v 1 -f image2 -vcodec png " + shellQuote(output_template);
+                                " -frames:v 1 -vf scale=384:384:force_original_aspect_ratio=decrease "
+                                "-f image2 -vcodec png " + shellQuote(output_template);
     const bool converted = std::system(command.c_str()) == 0 && readFile(output_template, png);
     std::remove(input_template);
     std::remove(output_template);

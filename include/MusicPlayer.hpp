@@ -25,7 +25,8 @@ public:
     ~MusicPlayer();
 
     // 播放控制接口
-    bool load(const std::string& path);
+    bool load(const std::string& path, const SongInfo* prepared_info = nullptr);
+    static SongInfo readSongInfo(const std::string& path);
     void play();
     void pause();
     void resume();
@@ -50,9 +51,9 @@ public:
     void decreaseVolume();      // 减少5%
 
 private:
-    void parseLyrics(const std::string& path);
-    double parseTime(const std::string& t);
-    std::string fetchEmbeddedLyrics(const std::string& path);
+    static void parseLyrics(const std::string& path, SongInfo& song);
+    static double parseTime(const std::string& t);
+    static std::string fetchEmbeddedLyrics(const std::string& path);
 
     Mix_Music* music = nullptr;
     SongInfo currentSong;

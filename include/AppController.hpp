@@ -8,6 +8,7 @@
 #include <thread>
 #include <mutex>
 #include <memory>
+#include <condition_variable>
 #include "MusicPlayer.hpp"
 #include "Playlist.hpp"
 
@@ -17,7 +18,8 @@ enum class AppState {
     PLAYING, 
     MAIN_MENU, 
     SETTINGS_MENU, 
-    SET_MODE, 
+    SET_MODE,
+    SET_LOAD_MODE,
     PLAYLIST_MANAGER, 
     PLAYLIST_MENU,      // 歌单功能菜单
     PLAYLIST_CREATE, 
@@ -33,6 +35,7 @@ enum class AppState {
 };
 
 enum class PlayMode { SEQUENTIAL, SHUFFLE, SINGLE };
+enum class LoadMode { SMOOTH, LOW_RESOURCE };
 
 class AppController {
 public:
@@ -48,6 +51,8 @@ public:
     void togglePause();
     void playAtIndex(int index);
     void togglePlayMode();
+    void setLoadMode(LoadMode new_mode);
+    LoadMode getLoadMode() const { return loadMode.load(); }
     void seekForward();
     void seekBackward();
     
@@ -70,6 +75,7 @@ public:
     // 数据获取 (供UI读取)
     AppState state = AppState::PLAYING;
     PlayMode mode = PlayMode::SEQUENTIAL;
+    std::atomic<LoadMode> loadMode{LoadMode::SMOOTH};
     std::vector<std::shared_ptr<Playlist>> playlists;
     int currentPlaylistIndex = -1; // 当前播放的歌单索引
     int currentSongIndex = 0;      // 当前播放的歌曲索引
@@ -111,6 +117,10 @@ public:
 private:
     // 生成乱序播放列表
     void generateShuffleOrder();
+    std::string getNextSongPathUnlocked() const;
+    void schedulePreload(const std::string& current_path, const std::string& next_path);
+    void preloadLoop();
+    bool takePreparedSong(const std::string& path, SongInfo& info);
 
 private:
     void loadConfig();
@@ -128,6 +138,15 @@ private:
     std::atomic<bool> needLoad{false};
     std::atomic<bool> isStartingUp{true}; // 是否为启动状态
     std::thread playerThread;
+    std::thread preloadThread;
+    std::atomic<bool> preloadRunning{true};
+    std::mutex preloadMutex;
+    std::condition_variable preloadCv;
+    std::string preloadCurrentPath;
+    std::string preloadNextPath;
+    unsigned long long preloadGeneration = 0;
+    std::string preparedPath;
+    SongInfo preparedSong;
     mutable std::mutex dataMutex; // 使用mutable以便在const成员函数中锁定
 };
 

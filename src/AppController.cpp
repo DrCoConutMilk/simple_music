@@ -3,18 +3,25 @@
 #include <algorithm>
 #include <random>
 #include <nlohmann/json.hpp>
+#include <array>
+#include <chrono>
+#include <fcntl.h>
+#include <unistd.h>
 
 using json = nlohmann::json;
 
 AppController::AppController() {
     init();
+    preloadThread = std::thread(&AppController::preloadLoop, this);
     playerThread = std::thread(&AppController::playbackLoop, this);
 }
 
 AppController::~AppController() {
     running = false;
+    preloadRunning = false;
+    preloadCv.notify_all();
     if (playerThread.joinable()) playerThread.join();
-    // 程序退出时保存配置
+    if (preloadThread.joinable()) preloadThread.join();
     saveConfig();
 }
 
@@ -45,56 +52,143 @@ void AppController::init() {
 
 void AppController::playbackLoop() {
     while (running) {
-        std::string path_to_load = "";
-        
+        std::string path_to_load;
+        std::string next_path;
+
         {
             std::lock_guard<std::mutex> lock(dataMutex);
-            
-            // 如果需要更新乱序列表（比如刚切换到乱序模式）
             if (needShuffleUpdate) {
-                if (mode == PlayMode::SHUFFLE && currentPlaylistIndex >= 0 && 
-                    currentPlaylistIndex < (int)playlists.size()) {
+                if (mode == PlayMode::SHUFFLE && currentPlaylistIndex >= 0 &&
+                    currentPlaylistIndex < static_cast<int>(playlists.size())) {
                     auto& playlist = playlists[currentPlaylistIndex];
-                    if (!playlist->empty() && shuffleOrder.empty()) {
-                        generateShuffleOrder();
-                    }
+                    if (!playlist->empty() && shuffleOrder.empty()) generateShuffleOrder();
                 }
                 needShuffleUpdate = false;
             }
-            
-            if (currentPlaylistIndex >= 0 && currentPlaylistIndex < (int)playlists.size()) {
+
+            if (currentPlaylistIndex >= 0 && currentPlaylistIndex < static_cast<int>(playlists.size())) {
                 auto& playlist = playlists[currentPlaylistIndex];
                 if (!playlist->empty()) {
-                    // 自动切歌判断逻辑
                     if (needLoad) {
-                        // 需要加载歌曲（启动时恢复播放或手动切歌）
                         path_to_load = getCurrentSong().path;
                         needLoad = false;
-                        // 如果是启动状态，现在应该结束了
-                        if (isStartingUp) {
-                            isStartingUp = false;
-                        }
+                        isStartingUp = false;
                     } else if (!player.isPlaying() && !player.isPaused() && !isStartingUp) {
-                        // 歌曲播放完毕，根据播放模式自动处理
-                        if (mode == PlayMode::SINGLE) {
-                            // 单曲循环模式：重新播放当前歌曲
-                            path_to_load = getCurrentSong().path;
-                        } else {
-                            // 顺序或乱序模式：切到下一首
+                        if (mode != PlayMode::SINGLE)
                             currentSongIndex = (currentSongIndex + 1) % playlist->size();
-                            path_to_load = getCurrentSong().path;
-                        }
+                        path_to_load = getCurrentSong().path;
                     }
+                    if (!path_to_load.empty()) next_path = getNextSongPathUnlocked();
                 }
             }
         }
 
         if (!path_to_load.empty()) {
-            player.load(path_to_load);
-            player.play();
+            SongInfo prepared;
+            const bool has_prepared = takePreparedSong(path_to_load, prepared);
+            if (player.load(path_to_load, has_prepared ? &prepared : nullptr)) {
+                player.play();
+                schedulePreload(path_to_load, next_path);
+            }
         }
-        
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+std::string AppController::getNextSongPathUnlocked() const {
+    if (currentPlaylistIndex < 0 || currentPlaylistIndex >= static_cast<int>(playlists.size()) ||
+        playlists[currentPlaylistIndex]->empty()) return "";
+    if (mode == PlayMode::SINGLE) return getCurrentSong().path;
+    const int next_index = (currentSongIndex + 1) % playlists[currentPlaylistIndex]->size();
+    return getSongAt(next_index).path;
+}
+
+void AppController::schedulePreload(const std::string& current_path, const std::string& next_path) {
+    {
+        std::lock_guard<std::mutex> lock(preloadMutex);
+        preloadCurrentPath = current_path;
+        preloadNextPath = next_path;
+        ++preloadGeneration;
+    }
+    preloadCv.notify_one();
+}
+
+bool AppController::takePreparedSong(const std::string& path, SongInfo& info) {
+    std::lock_guard<std::mutex> lock(preloadMutex);
+    if (preparedPath != path) return false;
+    info = preparedSong;
+    preparedPath.clear();
+    preparedSong = SongInfo();
+    return true;
+}
+
+void AppController::preloadLoop() {
+    unsigned long long handled_generation = 0;
+    while (preloadRunning) {
+        std::string current_path;
+        std::string next_path;
+        unsigned long long generation = 0;
+        {
+            std::unique_lock<std::mutex> lock(preloadMutex);
+            preloadCv.wait(lock, [&] {
+                return !preloadRunning || preloadGeneration != handled_generation;
+            });
+            if (!preloadRunning) break;
+            current_path = preloadCurrentPath;
+            next_path = preloadNextPath;
+            generation = preloadGeneration;
+            handled_generation = generation;
+        }
+
+        // 先提示 Linux 异步预读当前文件，不阻塞下一首元数据解析。
+        if (loadMode.load() == LoadMode::SMOOTH && !current_path.empty()) {
+            const int fd = ::open(current_path.c_str(), O_RDONLY);
+            if (fd >= 0) {
+                ::posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
+                ::close(fd);
+            }
+        }
+
+        // 下一首元数据优先，避免切歌时同步解析 TagLib 和歌词。
+        if (!next_path.empty()) {
+            SongInfo info = MusicPlayer::readSongInfo(next_path);
+            std::lock_guard<std::mutex> lock(preloadMutex);
+            if (generation == preloadGeneration) {
+                preparedPath = next_path;
+                preparedSong = std::move(info);
+            }
+        }
+
+        if (loadMode.load() != LoadMode::SMOOTH || current_path.empty()) continue;
+
+        // 顺序读取压缩音频，尽快填充操作系统页缓存；SDL_mixer 仍可立即流式播放。
+        std::ifstream input(current_path, std::ios::binary);
+        std::array<char, 1024 * 1024> buffer{};
+        while (preloadRunning && loadMode.load() == LoadMode::SMOOTH && input) {
+            {
+                std::lock_guard<std::mutex> lock(preloadMutex);
+                if (generation != preloadGeneration) break;
+            }
+            input.read(buffer.data(), buffer.size());
+        }
+    }
+}
+
+void AppController::setLoadMode(LoadMode new_mode) {
+    {
+        std::lock_guard<std::mutex> lock(dataMutex);
+        loadMode.store(new_mode);
+        saveConfig();
+    }
+    if (new_mode == LoadMode::SMOOTH) {
+        std::string current_path;
+        std::string next_path;
+        {
+            std::lock_guard<std::mutex> lock(dataMutex);
+            current_path = player.getCurrentFilePath();
+            next_path = getNextSongPathUnlocked();
+        }
+        if (!current_path.empty()) schedulePreload(current_path, next_path);
     }
 }
 
@@ -245,6 +339,8 @@ void AppController::togglePlayMode() {
     
     saveConfig();
     needShuffleUpdate = true;
+    const std::string current_path = player.getCurrentFilePath();
+    if (!current_path.empty()) schedulePreload(current_path, getNextSongPathUnlocked());
 }
 
 // 生成乱序播放列表
@@ -446,6 +542,7 @@ void AppController::saveConfig() {
     j["current_playlist_index"] = currentPlaylistIndex;
     j["current_song_index"] = currentSongIndex;
     j["volume"] = player.getVolume();
+    j["load_mode"] = loadMode.load() == LoadMode::SMOOTH ? "smooth" : "low_resource";
     
     // 只保存歌单的元信息（名称、索引映射）
     json playlists_meta = json::array();
@@ -480,7 +577,10 @@ void AppController::loadConfig() {
         }
         currentPlaylistIndex = j.value("current_playlist_index", -1);
         currentSongIndex = j.value("current_song_index", 0);
-        
+        const std::string load_mode = j.value("load_mode", "smooth");
+        loadMode.store(load_mode == "low_resource" || load_mode == "streaming"
+            ? LoadMode::LOW_RESOURCE : LoadMode::SMOOTH);
+
         // 加载音量设置（默认80%）
         int saved_volume = j.value("volume", 80);
         // 确保音量在有效范围内

@@ -232,26 +232,36 @@ void renderPlaying() {
                 const auto lines = wrapDisplayText(player_song.lyrics[idx].text, text_width);
                 if (lines.empty()) continue;
 
-                const size_t window_count = lines.size() > lyric_rows ? lines.size() - lyric_rows + 1 : 1;
-                const double current_lyric_time = lyric_idx >= 0
-                    ? player_song.lyrics[lyric_idx].timestamp : 0.0;
-                const double visible_seconds = std::max(0.0, elapsed - current_lyric_time);
-                const size_t scroll_tick = visible_seconds <= 1.5
-                    ? 0
-                    : static_cast<size_t>((visible_seconds - 1.5) / 1.2);
-                const size_t first_line = lines.size() > lyric_rows
-                    ? scroll_tick % (window_count + 1) : 0;
-                const size_t scroll_start = first_line == window_count ? 0 : first_line;
-                const int block_y = lyric_start_y + (offset + 1) * (lyric_rows + lyric_gap);
+                size_t first_line = 0;
+                size_t lines_to_show = std::min(lines.size(), static_cast<size_t>(lyric_rows));
 
-                if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
-                for (int row = 0; row < lyric_rows; ++row) {
-                    const size_t line_index = scroll_start + static_cast<size_t>(row);
-                    if (line_index >= lines.size() || block_y + row >= LINES - 4) break;
-                    if (offset == 0 && row == 0) {
-                        mvprintw(block_y + row, lyric_prefix_x, ">>");
+                if (offset == 0) {
+                    // 当前歌词使用两行滑动窗口；只有超出两行时才按本句时间滚动。
+                    const size_t window_count = lines.size() > static_cast<size_t>(lyric_rows)
+                        ? lines.size() - static_cast<size_t>(lyric_rows) + 1
+                        : 1;
+                    const double start_time = player_song.lyrics[idx].timestamp;
+                    const double end_time = idx + 1 < static_cast<int>(player_song.lyrics.size())
+                        ? player_song.lyrics[idx + 1].timestamp
+                        : static_cast<double>(player_song.duration);
+                    const double duration = end_time - start_time;
+                    if (window_count > 1 && duration > 0.0) {
+                        const double progress = std::clamp((elapsed - start_time) / duration, 0.0, 1.0);
+                        first_line = std::min(
+                            static_cast<size_t>(progress * static_cast<double>(window_count)),
+                            window_count - 1);
                     }
-                    mvprintw(block_y + row, lyric_text_x, "%s", lines[line_index].c_str());
+                }
+
+                const int block_y = lyric_start_y + (offset + 1) * (lyric_rows + lyric_gap);
+                if (offset == 0) attron(COLOR_PAIR(1) | A_BOLD);
+                for (size_t row = 0; row < lines_to_show; ++row) {
+                    const size_t line_index = first_line + row;
+                    if (line_index >= lines.size() || block_y + static_cast<int>(row) >= LINES - 4) break;
+                    if (offset == 0 && row == 0) {
+                        mvprintw(block_y, lyric_prefix_x, ">>");
+                    }
+                    mvprintw(block_y + static_cast<int>(row), lyric_text_x, "%s", lines[line_index].c_str());
                 }
                 if (offset == 0) attroff(COLOR_PAIR(1) | A_BOLD);
             }
@@ -506,8 +516,11 @@ void renderSortMenu() {
 }
 
 void renderSettings() {
+    const std::string load_mode = ctrl.getLoadMode() == LoadMode::SMOOTH
+        ? "流畅模式" : "低占用模式";
     std::vector<std::string> options = {
         "播放模式",
+        "加载模式: " + load_mode,
         "返回主菜单"
     };
     drawPageMenu("设置", options, main_menu_page, false);
@@ -520,6 +533,15 @@ void renderSortOrderMenu() {
         "返回排序方式"
     };
     drawPageMenu("排序顺序", options, sort_order_page, false);
+}
+
+void renderLoadMode() {
+    std::vector<std::string> options = {
+        "流畅模式（播放同时尽快读入页缓存）",
+        "低占用模式（按需读取，降低预读）",
+        "返回设置"
+    };
+    drawPageMenu("加载模式", options, main_menu_page, false);
 }
 
 void renderPlayMode() {
@@ -1174,8 +1196,12 @@ void handleSettingsInput(int ch) {
     } else if (ch == '\n' || ch == 13) {
         if (main_menu_page.selected_index == 0) {
             ctrl.state = AppState::SET_MODE;
-            main_menu_page.selected_index = (ctrl.mode == PlayMode::SEQUENTIAL ? 0 : 1);
+            main_menu_page.selected_index = ctrl.mode == PlayMode::SEQUENTIAL ? 0
+                : (ctrl.mode == PlayMode::SHUFFLE ? 1 : 2);
         } else if (main_menu_page.selected_index == 1) {
+            ctrl.state = AppState::SET_LOAD_MODE;
+            main_menu_page.selected_index = ctrl.getLoadMode() == LoadMode::SMOOTH ? 0 : 1;
+        } else if (main_menu_page.selected_index == 2) {
             ctrl.state = AppState::MAIN_MENU;
         }
     } else if (ch == 'h' || ch == 'H') {
@@ -1226,6 +1252,26 @@ void handlePlayModeInput(int ch) {
         enterHelp();
     } else if (ch == 'q' || ch == 'Q') {
         ctrl.state = AppState::SETTINGS_MENU;
+    }
+}
+
+void handleLoadModeInput(int ch) {
+    if (ch == KEY_UP) main_menu_page.moveUp();
+    else if (ch == KEY_DOWN) main_menu_page.moveDown();
+    else if (ch == KEY_PPAGE) main_menu_page.prevPage();
+    else if (ch == KEY_NPAGE) main_menu_page.nextPage();
+    else if (ch == '\n' || ch == 13) {
+        if (main_menu_page.selected_index == 0)
+            ctrl.setLoadMode(LoadMode::SMOOTH);
+        else if (main_menu_page.selected_index == 1)
+            ctrl.setLoadMode(LoadMode::LOW_RESOURCE);
+        ctrl.state = AppState::SETTINGS_MENU;
+        main_menu_page.selected_index = 1;
+    } else if (ch == 'q' || ch == 'Q') {
+        ctrl.state = AppState::SETTINGS_MENU;
+        main_menu_page.selected_index = 1;
+    } else if (ch == 'h' || ch == 'H') {
+        enterHelp();
     }
 }
 
@@ -1310,6 +1356,9 @@ int main() {
                 case AppState::SET_MODE:
                     handlePlayModeInput(ch);
                     break;
+                case AppState::SET_LOAD_MODE:
+                    handleLoadModeInput(ch);
+                    break;
                 case AppState::HELP:
                     ctrl.state = previous_state;
                     break;
@@ -1367,6 +1416,9 @@ int main() {
                 case AppState::SET_MODE:
                     renderPlayMode();
                     break;
+                case AppState::SET_LOAD_MODE:
+                    renderLoadMode();
+                    break;
                 case AppState::HELP:
                     switch (previous_state) {
                         case AppState::PLAYING:
@@ -1410,6 +1462,9 @@ int main() {
                             break;
                         case AppState::SET_MODE:
                             drawHelp(PLAY_MODE_HELP);
+                            break;
+                        case AppState::SET_LOAD_MODE:
+                            drawHelp(SETTINGS_HELP);
                             break;
                         default:
                             drawHelp(MAIN_MENU_HELP);

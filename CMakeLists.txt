@@ -1,6 +1,6 @@
 # 1. 基础设置
 cmake_minimum_required(VERSION 3.10)
-project(smp VERSION 1.2.0) # 项目名也改为 smp
+project(smp VERSION 1.2.1) # 项目名也改为 smp
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
